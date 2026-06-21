@@ -1,4 +1,4 @@
-# redmine-docker-workspace-tools
+# redmine-docker-workspace-tool
 
 A CLI tool for building and managing Docker workspaces for Redmine/RedMica.
 
@@ -32,19 +32,19 @@ The resulting environment is started and stopped with standard `docker compose` 
 Clone the repository to any directory.
 
 ```bash
-git clone <repository-url> ~/redmine-docker-workspace-tools
+git clone <repository-url> ~/redmine-docker-workspace-tool
 ```
 
 Source `activate-workspace-tool.sh` to add the tool to your current shell session's PATH.
 
 ```bash
-source ~/redmine-docker-workspace-tools/activate-workspace-tool.sh
+source ~/redmine-docker-workspace-tool/activate-workspace-tool.sh
 ```
 
 To avoid sourcing it every time, add it to your shell profile.
 
 ```bash
-echo 'source "$HOME/redmine-docker-workspace-tools/activate-workspace-tool.sh"' >> ~/.bashrc
+echo 'source "$HOME/redmine-docker-workspace-tool/activate-workspace-tool.sh"' >> ~/.bashrc
 source ~/.bashrc
 ```
 

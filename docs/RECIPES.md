@@ -8,7 +8,7 @@ You can automate and reproduce the setup process by combining commands into a sh
 #!/usr/bin/env bash
 set -euo pipefail
 
-source ~/redmine-docker-workspace-tools/activate-workspace-tool.sh
+source ~/redmine-docker-workspace-tool/activate-workspace-tool.sh
 
 WORKSPACE=/srv/redmine-workspace
 
@@ -40,7 +40,7 @@ redmine-docker-workspace check
 #!/usr/bin/env bash
 set -euo pipefail
 
-source ~/redmine-docker-workspace-tools/activate-workspace-tool.sh
+source ~/redmine-docker-workspace-tool/activate-workspace-tool.sh
 
 WORKSPACE=/srv/redmine-workspace
 

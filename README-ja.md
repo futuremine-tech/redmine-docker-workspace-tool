@@ -1,4 +1,4 @@
-# redmine-docker-workspace-tools
+# redmine-docker-workspace-tool
 
 Redmine/RedMica の Docker ワークスペースを構築・管理する CLI ツールです。
 
@@ -32,19 +32,19 @@ Redmine/RedMica の Docker ワークスペースを構築・管理する CLI ツ
 リポジトリを任意のディレクトリへクローンします。
 
 ```bash
-git clone <repository-url> ~/redmine-docker-workspace-tools
+git clone <repository-url> ~/redmine-docker-workspace-tool
 ```
 
 `activate-workspace-tool.sh` を source することで、現在のシェルセッションにパスが追加されます。
 
 ```bash
-source ~/redmine-docker-workspace-tools/activate-workspace-tool.sh
+source ~/redmine-docker-workspace-tool/activate-workspace-tool.sh
 ```
 
 毎回 source を避けたい場合は、シェルプロファイルに追記します。
 
 ```bash
-echo 'source "$HOME/redmine-docker-workspace-tools/activate-workspace-tool.sh"' >> ~/.bashrc
+echo 'source "$HOME/redmine-docker-workspace-tool/activate-workspace-tool.sh"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
