@@ -1,0 +1,3 @@
+# corrupted.dump - intentionally empty / unreadable fixture for error case testing
+# This file represents a corrupt or invalid pg_dump file
+INVALID_DUMP_MARKER=true

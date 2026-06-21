@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# bin/redmine-docker-workspace
+# redmine-docker-workspace CLI エントリポイント
+# 根拠要件: RDC-REQ-F0003, RDC-REQ-F0011, RDC-REQ-F0701
+#
+# Copyright (C) 2026 Futuremine Technologies
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, see <https://www.gnu.org/licenses/>.
+
+set -euo pipefail
+
+_RDW_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_RDC_LIB_DIR="$_RDW_BIN_DIR/../lib/rdc"
+
+# Source all modules
+source "$_RDC_LIB_DIR/logger.bash"
+source "$_RDC_LIB_DIR/state_store.bash"
+source "$_RDC_LIB_DIR/mode_resolver.bash"
+source "$_RDC_LIB_DIR/compose_renderer.bash"
+source "$_RDC_LIB_DIR/manifest_builder.bash"
+source "$_RDC_LIB_DIR/init_service.bash"
+source "$_RDC_LIB_DIR/dbdump_service.bash"
+source "$_RDC_LIB_DIR/generate_service.bash"
+source "$_RDC_LIB_DIR/prepare_db_service.bash"
+source "$_RDC_LIB_DIR/migrate_service.bash"
+source "$_RDC_LIB_DIR/check_service.bash"
+source "$_RDC_LIB_DIR/clean_service.bash"
+source "$_RDC_LIB_DIR/status_service.bash"
+source "$_RDC_LIB_DIR/remove_plugin_service.bash"
+source "$_RDC_LIB_DIR/add_plugin_service.bash"
+source "$_RDC_LIB_DIR/export_gemfile_lock_service.bash"
+
+# rdw_dispatch()
+# subcommand を各 Service へ振り分ける
+# args: command, argv...
+# returns: exit_code
+rdw_dispatch() {
+  local command="${1:?command required}"
+  shift
+
+  # ワークスペースを事前探索してログファイルを設定（ベストエフォート）
+  if [[ -z "${RDC_LOG_FILE:-}" ]]; then
+    local _dispatch_ws
+    _dispatch_ws=$(state_store_find_workspace_root 2>/dev/null) || true
+    [[ -n "$_dispatch_ws" ]] && export RDC_LOG_FILE="$_dispatch_ws/redmine-docker-workspace.log"
+  fi
+  logger_cmd "$command" "$@"
+
+  case "$command" in
+    init)     init_service_run "$@" ;;
+    dbdump)   dbdump_service_run "$@" ;;
+    generate) generate_service_run "$@" ;;
+    prepare-db) prepare_db_service_run "$@" ;;
+    migrate)  migrate_service_run "$@" ;;
+    check)    check_service_run "$@" ;;
+    clean)         clean_service_run "$@" ;;
+    status)        status_service_run "$@" ;;
+    remove-plugin) remove_plugin_service_run "$@" ;;
+    add-plugin)    add_plugin_service_run "$@" ;;
+    export-gemfile-lock) export_gemfile_lock_service_run "$@" ;;
+    *)
+      echo "Unknown subcommand: $command" >&2
+      echo "Usage: redmine-docker-workspace <subcommand> [options]" >&2
+      echo "Subcommands: init, dbdump, generate, prepare-db, migrate, check, clean, status, remove-plugin, add-plugin, export-gemfile-lock" >&2
+      return 1
+      ;;
+  esac
+}
+
+# rdw_main()
+# global option と subcommand を解釈する
+# args: argv...
+rdw_main() {
+  local subcommand=""
+  local remaining=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version|-V)
+        local _rdw_version
+        _rdw_version=$(git -C "$_RDW_BIN_DIR/.." describe --tags --abbrev=0 2>/dev/null || echo "(unknown)")
+        echo "redmine-docker-workspace $_rdw_version"
+        echo "Copyright (C) 2026 Futuremine Technologies"
+        echo "License: GNU General Public License v2 or later <https://www.gnu.org/licenses/gpl-2.0.html>"
+        return 0
+        ;;
+      --help|-h)
+        if [[ -z "$subcommand" ]]; then
+          echo "Usage: redmine-docker-workspace [options] <subcommand> [subcommand-options]"
+          echo ""
+          echo "Subcommands:"
+          echo "  init      Initialize workspace"
+          echo "  dbdump    Dump PostgreSQL database"
+          echo "  generate  Generate Docker Compose files"
+          echo "  prepare-db  Prepare database (--import-from/--fresh-db/--skip)"
+          echo "  migrate   Run Redmine migrations"
+          echo "  check     Verify running Redmine"
+          echo "  clean     Remove generated files and reset state"
+          echo "  status    Show workspace step status"
+          echo "  export-gemfile-lock  Extract Gemfile.lock from built image"
+          echo ""
+          echo "Global Options:"
+          echo "  -f, --force    Skip confirmation prompts for destructive operations"
+          echo "  -v, --verbose  Enable verbose output"
+          echo "  -V, --version  Show version information"
+          echo "  -h, --help     Show this help"
+          return 0
+        else
+          remaining+=("$1")
+        fi
+        shift
+        ;;
+      -f|--force)
+        export RDC_FORCE=true
+        shift
+        ;;
+      -v|--verbose)
+        export RDC_VERBOSE=true
+        shift
+        ;;
+      *)
+        if [[ -z "$subcommand" ]]; then
+          subcommand="$1"
+        else
+          remaining+=("$1")
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  if [[ -z "$subcommand" ]]; then
+    echo "Usage: redmine-docker-workspace [options] <subcommand> [subcommand-options]" >&2
+    echo "Run 'redmine-docker-workspace --help' for more information." >&2
+    return 1
+  fi
+
+  rdw_dispatch "$subcommand" "${remaining[@]}"
+}
+
+rdw_main "$@"
