@@ -629,6 +629,77 @@ EOF
   unset RDC_MOCK_SKIP_IMAGE_EXTRACT
 }
 
+# RDC-REQ-F0303E: Dockerfile に CJK フォントインストールが含まれる（--deployment なし）
+@test "[RDC-REQ-F0303E] generate: Dockerfile に fonts-noto-cjk / fontconfig インストールと fc-cache が含まれる" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q "fonts-noto-cjk" "$WS/Dockerfile"
+  grep -q "fontconfig" "$WS/Dockerfile"
+  grep -q "fc-cache" "$WS/Dockerfile"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# RDC-REQ-F0303E: --deployment 時も Dockerfile に CJK フォントインストールが含まれる
+@test "[RDC-REQ-F0303E] generate --deployment: Dockerfile にも fonts-noto-cjk / fontconfig インストールと fc-cache が含まれる" {
+  printf 'GEM\n  remote: https://rubygems.org/\nBUNDLED WITH\n  2.4.0\n' > "$WS/Gemfile.lock"
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  cd "$WS"
+  run rdw generate --deployment
+  [ "$status" -eq 0 ]
+  grep -q "fonts-noto-cjk" "$WS/Dockerfile"
+  grep -q "fontconfig" "$WS/Dockerfile"
+  grep -q "fc-cache" "$WS/Dockerfile"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# RDC-REQ-F0303F: generate 後 .env に SECRET_KEY_BASE が自動生成される
+@test "[RDC-REQ-F0303F] generate: .env に SECRET_KEY_BASE が自動生成される" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q '^SECRET_KEY_BASE=' "$WS/.env"
+  val=$(grep '^SECRET_KEY_BASE=' "$WS/.env" | cut -d= -f2-)
+  [ ${#val} -ge 64 ]
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# RDC-REQ-F0303F: 既存 .env の SECRET_KEY_BASE は上書きしない
+@test "[RDC-REQ-F0303F] generate: 既存 .env の SECRET_KEY_BASE を再利用する" {
+  cat > "$WS/.env" <<'ENVEOF'
+DB_PASSWORD=test_password
+SECRET_KEY_BASE=existing_secret_value_abc123
+ENVEOF
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q '^SECRET_KEY_BASE=existing_secret_value_abc123$' "$WS/.env"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# RDC-REQ-F0303F: docker-compose.yml に SECRET_KEY_BASE が含まれる
+@test "[RDC-REQ-F0303F] generate: docker-compose.yml に SECRET_KEY_BASE が含まれる" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q 'SECRET_KEY_BASE' "$WS/docker-compose.yml"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
 # RDC-REQ-F0208: --deployment なし時は Dockerfile に通常の bundle install が含まれ --deployment は含まれない
 @test "[RDC-REQ-F0208] generate: --deployment 省略時は Dockerfile に bundle install --deployment が含まれない" {
   export RDC_ALLOW_MOCK=1

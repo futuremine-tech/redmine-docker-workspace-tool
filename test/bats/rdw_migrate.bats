@@ -131,6 +131,62 @@ teardown() {
   echo "$output" | grep -qi "force\|--force"
 }
 
+# ---- load_default_data (RDC-REQ-F0389) ----
+
+# mode=new + fresh-db のとき load_default_data が実行される
+@test "[RDC-REQ-F0389] migrate: mode=new かつ import_mode=fresh-db のとき load_default_data が実行される" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" \
+    "generate_status=done" "import_status=done" "import_mode=fresh-db" \
+    "migrate_status=pending"
+  cd "$WS"
+  run rdw migrate
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "load_default_data"
+}
+
+# --lang en を指定すると REDMINE_LANG=en で実行される
+@test "[RDC-REQ-F0389] migrate: --lang en を指定すると REDMINE_LANG=en で load_default_data が実行される" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" \
+    "generate_status=done" "import_status=done" "import_mode=fresh-db" \
+    "migrate_status=pending"
+  cd "$WS"
+  run rdw migrate --lang en
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "REDMINE_LANG=en"
+}
+
+# mode=passenger のとき load_default_data は実行されない
+@test "[RDC-REQ-F0389] migrate: mode=passenger のとき load_default_data は実行されない" {
+  cd "$WS"
+  run rdw migrate
+  [ "$status" -eq 0 ]
+  ! echo "$output" | grep -qi "load_default_data"
+}
+
+# mode=new でも import_mode=import-from のとき load_default_data は実行されない
+@test "[RDC-REQ-F0389] migrate: mode=new でも import_mode=import-from のとき load_default_data は実行されない" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" \
+    "generate_status=done" "import_status=done" "import_mode=import-from" \
+    "migrate_status=pending"
+  cd "$WS"
+  run rdw migrate
+  [ "$status" -eq 0 ]
+  ! echo "$output" | grep -qi "load_default_data"
+}
+
+# --help に --lang が含まれる
+@test "[RDC-REQ-F0389] migrate --help: --lang オプションが Usage に含まれる" {
+  run rdw migrate --help
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q -- "--lang"
+}
+
 # ---- 完了後自動 status 表示 ----
 
 # migrate 完了後にステップ状態一覧と次アクション案内が自動表示される

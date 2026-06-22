@@ -16,9 +16,13 @@ migrate_service_run() {
   # --help は workspace チェックより先に処理する
   for arg in "$@"; do
     if [[ "$arg" == "--help" || "$arg" == "-h" ]]; then
-      echo "Usage: redmine-docker-workspace migrate"
+      echo "Usage: redmine-docker-workspace migrate [--lang <LANG>]"
       echo ""
       echo "Runs db:migrate and redmine:plugins:migrate inside the app container."
+      echo ""
+      echo "Options:"
+      echo "  --lang <LANG>    Language for loading default data (default: ja)"
+      echo "                   Only applies when mode=new and prepare-db used --fresh-db"
       echo ""
       echo "Next steps after migrate:"
       echo "  1. docker compose up -d  (start the Redmine application)"
@@ -34,12 +38,14 @@ migrate_service_run() {
   }
   export RDC_LOG_FILE="$workspace/redmine-docker-workspace.log"
 
+  local lang="ja"
   local args=("$@")
   local i=0
   while [[ $i -lt ${#args[@]} ]]; do
     case "${args[$i]}" in
       --help|-h) ((i+=1)) ;;
       -v|--verbose) export RDC_VERBOSE=true; ((i+=1)) ;;
+      --lang) lang="${args[$((i+1))]:-ja}"; ((i+=2)) ;;
       *) ((i+=1)) ;;
     esac
   done
@@ -67,6 +73,12 @@ migrate_service_run() {
   fi
 
   local compose_dir="$workspace"
+  local mode="${RDC_STATE_mode:-}"
+  local import_mode="${RDC_STATE_import_mode:-}"
+  local run_load_default_data=false
+  if [[ "$mode" == "new" && "$import_mode" == "fresh-db" ]]; then
+    run_load_default_data=true
+  fi
 
   # Ensure built image exists (or mock)
   migrate_service_ensure_built_image "$workspace" || return 1
@@ -80,6 +92,10 @@ migrate_service_run() {
     logger_info "db:migrate completed."
     logger_info "Starting redmine:plugins:migrate (this may take a while)"
     logger_info "redmine:plugins:migrate completed."
+    if [[ "$run_load_default_data" == "true" ]]; then
+      logger_info "Starting redmine:load_default_data (REDMINE_LANG=${lang})"
+      logger_info "redmine:load_default_data completed."
+    fi
     logger_info "Mock: skipping docker compose migrations (RDC_ALLOW_MOCK=1)"
     state_store_save "$workspace" "migrate_status" "done"
     state_store_save "$workspace" "check_status" "pending"
@@ -101,11 +117,18 @@ migrate_service_run() {
     return 1
   fi
 
+  if [[ "$run_load_default_data" == "true" ]]; then
+    if ! migrate_service_run_load_default_data "$compose_dir" "$lang"; then
+      logger_error "redmine:load_default_data failed."
+      return 1
+    fi
+  fi
+
   state_store_save "$workspace" "migrate_status" "done"
-  
+
   # Reset check status to pending (migration invalidates any previous check)
   state_store_save "$workspace" "check_status" "pending"
-  
+
   logger_info "migrate completed."
   echo "migrate completed."
 
@@ -184,6 +207,50 @@ migrate_service_show_spinner() {
     sleep 0.2
   done
   printf "\r%-80s\r" ""
+}
+
+# migrate_service_run_load_default_data()
+# redmine:load_default_data を実行して日本語等の初期データを登録する（RDC-REQ-F0389）
+# mode=new かつ import_mode=fresh-db のときのみ呼び出すこと
+# args: compose_dir, lang
+# returns: 0 on success, 1 on failure
+migrate_service_run_load_default_data() {
+  local compose_dir="${1:?compose_dir required}"
+  local lang="${2:-ja}"
+
+  logger_info "Starting redmine:load_default_data (REDMINE_LANG=${lang})"
+
+  if [[ "${RDC_VERBOSE:-}" == "true" ]]; then
+    if ! (cd "$compose_dir" && docker compose run --rm \
+        -e REDMINE_LANG="${lang}" \
+        redmine bash -lc "bundle exec rake redmine:load_default_data RAILS_ENV=production"); then
+      return 1
+    fi
+  else
+    local tmp_log
+    tmp_log=$(mktemp)
+    pushd "$compose_dir" > /dev/null
+    docker compose run --rm \
+      -e REDMINE_LANG="${lang}" \
+      redmine bash -lc "bundle exec rake redmine:load_default_data RAILS_ENV=production" \
+      > "$tmp_log" 2>&1 &
+    local docker_pid=$!
+    migrate_service_show_spinner "$docker_pid" "Loading default data"
+    wait "$docker_pid"
+    local docker_exit=$?
+    popd > /dev/null
+
+    if [[ $docker_exit -ne 0 ]]; then
+      echo "--- Full output (load_default_data failed) ---" >&2
+      cat "$tmp_log" >&2
+      rm -f "$tmp_log"
+      return 1
+    fi
+    rm -f "$tmp_log"
+  fi
+
+  logger_info "redmine:load_default_data completed."
+  echo "redmine:load_default_data completed."
 }
 
 # migrate_service_ensure_built_image()

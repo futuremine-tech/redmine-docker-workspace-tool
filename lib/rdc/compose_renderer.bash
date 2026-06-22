@@ -57,6 +57,16 @@ compose_renderer_render_dockerfile() {
     cat <<EOF
 FROM ${base_image}
 
+# Install CJK fonts to prevent garbled characters in Japanese PDF output (RDC-REQ-F0303E)
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    fonts-noto-cjk \
+    fontconfig && \
+    rm -rf /var/lib/apt/lists/* && \
+    fc-cache -fv
+USER redmine
+
 COPY Gemfile.lock /usr/src/redmine/Gemfile.lock
 
 # bundle install --deployment with Gemfile.lock for reproducible builds (RDC-REQ-F0207)
@@ -70,6 +80,16 @@ EOF
   else
     cat <<EOF
 FROM ${base_image}
+
+# Install CJK fonts to prevent garbled characters in Japanese PDF output (RDC-REQ-F0303E)
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    fonts-noto-cjk \
+    fontconfig && \
+    rm -rf /var/lib/apt/lists/* && \
+    fc-cache -fv
+USER redmine
 
 # bundle install with plugins available at build time (RDC-REQ-F0303A)
 # plugins/ and config/database.yml are bind-mounted from build context (workspace root)
@@ -106,11 +126,12 @@ compose_renderer_render_compose() {
       - \"${pg_publish_port}:5432\""
   fi
 
-  # Build environment section (DB password mapping + optional RAILS_RELATIVE_URL_ROOT)
+  # Build environment section (DB password mapping, SECRET_KEY_BASE, optional RAILS_RELATIVE_URL_ROOT)
   local env_entries="      REDMINE_DB_POSTGRES: db
       REDMINE_DB_DATABASE: redmine
       REDMINE_DB_USERNAME: redmine
-      REDMINE_DB_PASSWORD: \${DB_PASSWORD}"
+      REDMINE_DB_PASSWORD: \${DB_PASSWORD}
+      SECRET_KEY_BASE: \${SECRET_KEY_BASE}"
   if [[ -n "$relative_url_root" ]]; then
     env_entries="${env_entries}
       RAILS_RELATIVE_URL_ROOT: \"${relative_url_root}\""

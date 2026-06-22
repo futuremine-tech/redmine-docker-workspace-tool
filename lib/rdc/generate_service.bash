@@ -277,11 +277,11 @@ generate_service_run() {
 
   if [[ "${RDC_DB_PASSWORD_SOURCE:-}" == "existing_env" ]]; then
     logger_info "Using DB_PASSWORD from existing .env"
-    chmod 600 "$compose_dir/.env"
   else
     generate_service_write_db_password_to_env "$compose_dir/.env" "$db_password"
-    chmod 600 "$compose_dir/.env"
   fi
+  generate_service_ensure_secret_key_base "$compose_dir/.env"
+  chmod 600 "$compose_dir/.env"
 
   # For subpath routing, generate Rackup override mounted to /usr/src/redmine/config.ru
   if [[ -n "$relative_url_root" ]]; then
@@ -396,6 +396,23 @@ generate_service_write_db_password_to_env() {
   else
     echo "DB_PASSWORD=${db_password}" >> "$env_file"
   fi
+}
+
+# generate_service_ensure_secret_key_base()
+# .env に SECRET_KEY_BASE が無ければ openssl で生成して書き込む（RDC-REQ-F0303F）
+# 既存値がある場合は何もしない
+# args: env_file
+generate_service_ensure_secret_key_base() {
+  local env_file="${1:?env_file required}"
+
+  touch "$env_file"
+  if grep -q '^SECRET_KEY_BASE=' "$env_file" 2>/dev/null; then
+    return 0
+  fi
+
+  local secret_key_base
+  secret_key_base=$(openssl rand -hex 64)
+  echo "SECRET_KEY_BASE=${secret_key_base}" >> "$env_file"
 }
 
 # generate_service_resolve_publish_ports()
