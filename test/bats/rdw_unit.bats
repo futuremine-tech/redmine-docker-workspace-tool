@@ -81,6 +81,25 @@ teardown() {
   echo "$output" | grep -q "workspace-path"
 }
 
+# RDC-REQ-F0910: user: "999:<GID>" が compose 定義に含まれる
+@test "[RDC-REQ-F0910] ComposeRenderer: user に UID 999 と generate 実行ユーザーの GID が設定される" {
+  export RDC_WORKSPACE_PATH="$WS"
+  local expected_gid
+  expected_gid=$(id -g)
+  run compose_renderer_render_compose
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "user: \"999:${expected_gid}\""
+}
+
+# RDC-REQ-F0910: RDC_CONTAINER_GID で GID を上書きできる
+@test "[RDC-REQ-F0910] ComposeRenderer: RDC_CONTAINER_GID を指定すると user の GID がその値になる" {
+  export RDC_WORKSPACE_PATH="$WS"
+  export RDC_CONTAINER_GID="1234"
+  run compose_renderer_render_compose
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q 'user: "999:1234"'
+}
+
 # RDC-REQ-F0910A: PostgreSQL を既定では公開しない
 @test "[RDC-REQ-F0910A] ComposeRenderer: PostgreSQL を既定ではホスト公開しない" {
   export RDC_WORKSPACE_PATH="$WS"

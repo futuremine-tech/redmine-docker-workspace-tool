@@ -107,7 +107,8 @@ EOF
 # compose_renderer_render_compose()
 # docker-compose.yml 内容を標準出力へ返す
 # context env vars: RDC_WORKSPACE_PATH, RDC_PRODUCT, RDC_TARGET_IMAGE_TAG,
-#                   RDC_REDMINE_BIND (e.g. 127.0.0.1:38080), RDC_PG_PUBLISH_PORT (optional)
+#                   RDC_REDMINE_BIND (e.g. 127.0.0.1:38080), RDC_PG_PUBLISH_PORT (optional),
+#                   RDC_CONTAINER_GID (generate 実行ユーザーの GID; 未指定時は id -g で取得)
 compose_renderer_render_compose() {
   local workspace_path="${RDC_WORKSPACE_PATH:-$PWD}"
   local product="${RDC_PRODUCT:-redmine}"
@@ -116,6 +117,7 @@ compose_renderer_render_compose() {
   local pg_publish_port="${RDC_PG_PUBLISH_PORT:-}"
   local relative_url_root="${RDC_RELATIVE_URL_ROOT:-}"
   local themes_container_path="${RDC_THEMES_CONTAINER_PATH:-/usr/src/redmine/themes}"
+  local container_gid="${RDC_CONTAINER_GID:-$(id -g)}"
   local project_name
   project_name="$(basename "$workspace_path")"
 
@@ -152,6 +154,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: ${project_name}-redmine
+    user: "999:${container_gid}"
     env_file: .env
 ${env_section}
     ports:

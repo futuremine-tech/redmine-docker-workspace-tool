@@ -394,6 +394,22 @@ EOF
   [ "$output" -eq 0 ]
 }
 
+# RDC-REQ-F0103: 非 root 実行時、コンテナ書き込みディレクトリ (files/log/tmp) に group 書き込み権限が付与される
+# compose の user: "999:<実行ユーザーGID>" と対で機能し、world-writable にしない
+@test "[RDC-REQ-F0103] init: 非 root 実行時に files/log/tmp が group 書き込み可になる" {
+  if [[ "$(id -u)" == "0" ]]; then
+    skip "root 実行時はこのテストをスキップ（chown パスを通る）"
+  fi
+  target_dir="$WS/permtest"
+  run rdw init --mode new --target "$target_dir"
+  [ "$status" -eq 0 ]
+  for dir in files log tmp; do
+    perms=$(stat -c "%a" "$target_dir/$dir")
+    # group write bit (g+w) が立っていること（第2桁が 2/3/6/7）
+    [[ "$perms" =~ [0-7][2367][0-7] ]]
+  done
+}
+
 # RDC-REQ-F0954, RDC-REQ-F0956: --list は x.y.z 形式のみ表示し --target 不要で動作する
 @test "[RDC-REQ-F0954][RDC-REQ-F0956] init --list: x.y.z 形式のフルイメージ名のみ表示し --target なしで正常終了する" {
   export RDC_ALLOW_MOCK=1

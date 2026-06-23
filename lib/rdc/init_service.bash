@@ -284,11 +284,14 @@ init_service_run() {
            "$workspace/verification" "$workspace/themes" \
            "$workspace/files" "$workspace/log" "$workspace/tmp" \
            "$workspace/.rdc_plugins"
-  # root で実行した場合、コンテナユーザー (redmine: UID/GID 999) が
-  # 書き込めるよう実行時書き込みディレクトリの所有者を設定する。
+  # コンテナユーザー (redmine: UID/GID 999) が書き込めるよう権限を設定する。
+  # root 実行時: chown で所有者を 999 に変更。
+  # 非 root 実行時: group に書き込み権限を付与。compose の user: "999:<実行ユーザーGID>" と対で機能する。
   # --base-image 使用時は対象イメージのコンテナユーザーも UID 999 であること。
   if [[ "$(id -u)" == "0" ]]; then
     chown 999:999 "$workspace/files" "$workspace/log" "$workspace/tmp"
+  else
+    chmod g+w "$workspace/files" "$workspace/log" "$workspace/tmp"
   fi
 
   # Handle reinit: reset downstream if same mode
