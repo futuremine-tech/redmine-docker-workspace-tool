@@ -73,7 +73,7 @@ Use `--mode` with the `init` command to specify where the workspace is created f
 Run commands in the following order. Use `status` to check your progress at any point.
 
 ```
-init → generate → docker compose build → prepare-db → migrate → docker compose up -d → check
+init → generate → prepare-db → docker compose build → migrate → docker compose up -d → check
 ```
 
 ### Step Details
@@ -117,13 +117,7 @@ redmine-docker-workspace generate \
 
 Manage plugins with `add-plugin` / `remove-plugin`. Adding plugins before the build step lets you include them in a single build. See [Plugin Management](#plugin-management) for details.
 
-#### 4. Build Docker Image
-
-```bash
-docker compose build
-```
-
-#### 5. Prepare Database
+#### 4. Prepare Database
 
 ```bash
 # Import from Passenger's PostgreSQL database
@@ -134,6 +128,12 @@ redmine-docker-workspace prepare-db --from-external-db
 
 # Start with an empty (fresh) database
 redmine-docker-workspace prepare-db --fresh-db
+```
+
+#### 5. Build Docker Image
+
+```bash
+docker compose build
 ```
 
 #### 6. Run Migrations

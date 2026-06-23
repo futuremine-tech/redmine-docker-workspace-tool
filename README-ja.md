@@ -73,7 +73,7 @@ redmine-docker-workspace --help
 以下の順序でコマンドを実行します。`status` で現在地を確認しながら進めてください。
 
 ```
-init → generate → docker compose build → prepare-db → migrate → docker compose up -d → check
+init → generate → prepare-db → docker compose build → migrate → docker compose up -d → check
 ```
 
 ### ステップ詳細
@@ -115,15 +115,9 @@ redmine-docker-workspace generate \
 
 #### 3. プラグイン追加・削除（任意）
 
-`add-plugin` / `remove-plugin` でプラグインを管理できます。ビルド前に追加しておくことで、次のステップのビルド 1 回に含められます。詳細は[プラグイン管理](#プラグイン管理)を参照してください。
+`add-plugin` / `remove-plugin` でプラグインを管理できます。ビルドステップまでに追加しておくことで、1 回のビルドに含められます。詳細は[プラグイン管理](#プラグイン管理)を参照してください。
 
-#### 4. Docker イメージビルド
-
-```bash
-docker compose build
-```
-
-#### 5. DB 準備
+#### 4. DB 準備
 
 ```bash
 # Passenger の DB（PostgreSQL）からデータをインポートする場合
@@ -134,6 +128,12 @@ redmine-docker-workspace prepare-db --from-external-db
 
 # 新規（空の DB）にする場合
 redmine-docker-workspace prepare-db --fresh-db
+```
+
+#### 5. Docker イメージビルド
+
+```bash
+docker compose build
 ```
 
 #### 6. マイグレーション
