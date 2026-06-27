@@ -108,6 +108,8 @@ rdw_main() {
           echo "  check     Verify running Redmine"
           echo "  clean     Remove generated files and reset state"
           echo "  status    Show workspace step status"
+          echo "  add-plugin     Add a Redmine plugin to the workspace"
+          echo "  remove-plugin  Remove a Redmine plugin from the workspace"
           echo "  export-gemfile-lock  Extract Gemfile.lock from built image"
           echo ""
           echo "Global Options:"

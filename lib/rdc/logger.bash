@@ -41,6 +41,28 @@ logger_debug() {
   fi
 }
 
+# logger_show_spinner()
+# 指定 PID の完了までスピナーを表示する（TTY のみ; 非 TTY では何もしない）
+# args: pid, message
+logger_show_spinner() {
+  local pid="${1:?pid required}"
+  local message="${2:-Working}"
+
+  if [[ ! -t 1 ]]; then
+    return 0
+  fi
+
+  local frames='|/-\\'
+  local i=0
+  while kill -0 "$pid" 2>/dev/null; do
+    local frame="${frames:i%4:1}"
+    printf "\r%s %s" "$message" "$frame"
+    i=$((i + 1))
+    sleep 0.2
+  done
+  printf "\r%-80s\r" ""
+}
+
 # logger_cmd()
 # サブコマンド呼び出しの証跡をタイムスタンプ付きで出力する
 # stdout と RDC_LOG_FILE（設定時）の両方へ記録する

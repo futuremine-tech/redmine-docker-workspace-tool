@@ -169,7 +169,7 @@ EOF
     pushd "$compose_dir" > /dev/null
     docker compose run --rm redmine bash -lc "$migrate_script" > "$tmp_log" 2>&1 &
     local docker_pid=$!
-    migrate_service_show_spinner "$docker_pid" "Migrating"
+    logger_show_spinner "$docker_pid" "Migrating"
     wait "$docker_pid"
     local docker_exit=$?
     popd > /dev/null
@@ -185,28 +185,6 @@ EOF
     fi
     rm -f "$tmp_log"
   fi
-}
-
-# migrate_service_show_spinner()
-# 指定 PID の完了までスピナーを表示する（TTY のみ）
-# args: pid, message
-migrate_service_show_spinner() {
-  local pid="${1:?pid required}"
-  local message="${2:-Working}"
-
-  if [[ ! -t 1 ]]; then
-    return 0
-  fi
-
-  local frames='|/-\\'
-  local i=0
-  while kill -0 "$pid" 2>/dev/null; do
-    local frame="${frames:i%4:1}"
-    printf "\r%s %s" "$message" "$frame"
-    i=$((i + 1))
-    sleep 0.2
-  done
-  printf "\r%-80s\r" ""
 }
 
 # migrate_service_run_load_default_data()
@@ -235,7 +213,7 @@ migrate_service_run_load_default_data() {
       redmine bash -lc "bundle exec rake redmine:load_default_data RAILS_ENV=production" \
       > "$tmp_log" 2>&1 &
     local docker_pid=$!
-    migrate_service_show_spinner "$docker_pid" "Loading default data"
+    logger_show_spinner "$docker_pid" "Loading default data"
     wait "$docker_pid"
     local docker_exit=$?
     popd > /dev/null

@@ -269,7 +269,7 @@ prepare_db_service_restore_dump() {
   logger_info "Restoring dump: $dump_path"
 
   if [[ -f "$compose_dir/docker-compose.yml" ]]; then
-    (cd "$compose_dir" && docker compose up -d db 2>/dev/null) || true
+    (cd "$compose_dir" && docker compose up -d db) || true
     local retries=0
     while ! (cd "$compose_dir" && docker compose exec -T db pg_isready -U redmine -d redmine) 2>/dev/null; do
       ((retries++))

@@ -601,12 +601,19 @@ generate_service_extract_configuration_example() {
   local container_id
   local pull_succeeded=true
   
-  # Pull image: show full docker pull output even without -v so the first
-  # fetch gives the user progress and tag resolution details.
-  if ! docker pull "$image_name"; then
-    logger_info "Warning: Could not pull image $image_name"
+  # Pull image with spinner; show final status after completion.
+  logger_info "Pulling image: ${image_name} ..."
+  local pull_log
+  pull_log=$(mktemp)
+  docker pull "$image_name" > "$pull_log" 2>&1 &
+  local pull_pid=$!
+  logger_show_spinner "$pull_pid" "Pulling ${image_name}"
+  if ! wait "$pull_pid"; then
+    logger_info "Warning: Could not pull image ${image_name}"
     pull_succeeded=false
   fi
+  cat "$pull_log"
+  rm -f "$pull_log"
   
   # Create temporary container and copy configuration.yml.example
   container_id=$(docker create "$image_name" /bin/sh 2>/dev/null) || {
