@@ -512,7 +512,7 @@ status_service_check_build_needed_by_plugins() {
   plugins_last_changed=$(grep "^plugins_last_changed=" "$workspace_path/.rdc_state" 2>/dev/null | cut -d= -f2- || true)
   [[ -z "$plugins_last_changed" ]] && return 1
 
-  # Mock: use RDC_MOCK_IMAGE_GENERATE_ID as the image build timestamp
+  # Mock: use RDC_MOCK_IMAGE_GENERATE_ID as the image build timestamp (simulates .Created)
   if [[ "${RDC_MOCK_IMAGE_EXISTS:-}" == "true" ]]; then
     local image_ts="${RDC_MOCK_IMAGE_GENERATE_ID:-}"
     [[ -z "$image_ts" ]] && return 1
@@ -543,17 +543,10 @@ status_service_check_build_needed_by_plugins() {
 
   if ! docker image inspect "$image_name" > /dev/null 2>&1; then return 1; fi
 
-  local image_generate_id
-  image_generate_id=$(docker image inspect \
-    --format '{{ index .Config.Labels "io.github.futuremine-tech.rdc.generate-id" }}' \
-    "$image_name" 2>/dev/null || true)
-
-  if [[ -n "$image_generate_id" ]]; then
-    [[ "$plugins_last_changed" > "$image_generate_id" ]]
-    return $?
-  fi
-
-  # Fallback: compare with image creation epoch
+  # generate-id ラベルはイメージが generate 後にビルドされたかを示すが、
+  # プラグイン追加後のリビルド確認にはイメージの実際の作成時刻を使う必要がある。
+  # generate-id はビルド時刻ではなく generate 実行時刻なので、
+  # プラグイン追加（generate より後）と比較すると常に「再ビルド必要」になってしまう。
   local image_created_at plugins_epoch image_epoch
   image_created_at=$(docker image inspect --format '{{.Created}}' "$image_name" 2>/dev/null || true)
   [[ -z "$image_created_at" ]] && return 1
