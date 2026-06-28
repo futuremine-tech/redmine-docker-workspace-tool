@@ -700,6 +700,62 @@ ENVEOF
   unset RDC_MOCK_SKIP_IMAGE_EXTRACT
 }
 
+# ---- --log-stdout オプション ----
+
+# RDC-REQ-F0317: --log-stdout なし（デフォルト）では docker-compose.yml に RAILS_LOG_TO_STDOUT: "" が設定される
+@test "[RDC-REQ-F0964] generate: --log-stdout 省略時は docker-compose.yml に RAILS_LOG_TO_STDOUT: \"\" が含まれる" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q 'RAILS_LOG_TO_STDOUT: ""' "$WS/docker-compose.yml"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# RDC-REQ-F0318: --log-stdout 指定時は docker-compose.yml に RAILS_LOG_TO_STDOUT: "true" が設定される
+@test "[RDC-REQ-F0965] generate --log-stdout: docker-compose.yml に RAILS_LOG_TO_STDOUT: \"true\" が含まれる" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  cd "$WS"
+  run rdw generate --log-stdout
+  [ "$status" -eq 0 ]
+  grep -q 'RAILS_LOG_TO_STDOUT: "true"' "$WS/docker-compose.yml"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# RDC-REQ-F0319: --log-stdout は .rdc_state に log_stdout=true を保存する
+@test "[RDC-REQ-F0966] generate --log-stdout: .rdc_state に log_stdout=true を保存する" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  cd "$WS"
+  run rdw generate --log-stdout
+  [ "$status" -eq 0 ]
+  val=$(rdw_read_state "$WS" "log_stdout")
+  [ "$val" = "true" ]
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# RDC-REQ-F0319: generate（フラグなし）で再実行すると log_stdout が false に戻る
+@test "[RDC-REQ-F0966b] generate: log_stdout=true の状態からフラグなし再実行で false に更新される" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" \
+    "generate_status=pending" "log_stdout=true"
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  val=$(rdw_read_state "$WS" "log_stdout")
+  [ "$val" = "false" ]
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
 # RDC-REQ-F0208: --deployment なし時は Dockerfile に通常の bundle install が含まれ --deployment は含まれない
 @test "[RDC-REQ-F0208] generate: --deployment 省略時は Dockerfile に bundle install --deployment が含まれない" {
   export RDC_ALLOW_MOCK=1

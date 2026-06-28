@@ -51,10 +51,13 @@ Dockerfile、docker-compose.yml、.env などを生成します。
 | `--db-publish-port PORT` | PostgreSQL をホストへ公開するポート（既定: ホスト非公開・Docker ネットワーク内のコンテナ間のみ接続可） |
 | `--relative-url-root PATH` | サブディレクトリ運用パス（例: `/redmine`） |
 | `--deployment` | ワークスペースルートの `Gemfile.lock` を使って `bundle install --deployment` を実行する（再現性のあるビルド） |
+| `--log-stdout` | Redmine のログを STDOUT へ出力する（`docker compose logs redmine` で参照）。未指定時は `log/production.log` へファイル出力 |
 
 `--deployment` を指定すると、生成される Dockerfile には `COPY Gemfile.lock` と `bundle install --deployment` が含まれます。ワークスペースルートに `Gemfile.lock` がない場合はエラーになります。先に [`export-gemfile-lock`](#export-gemfile-lock--gemfilelock-の取り出し) でイメージからファイルを取り出してください。
 
 `--deployment` なしで再実行すると、通常の `bundle install` に戻ります（`.rdc_state` の `deployment_build` が `false` に更新され、`docker compose build` で反映されます）。
+
+`--log-stdout` なし（デフォルト）では、生成される docker-compose.yml に `RAILS_LOG_TO_STDOUT: ""` が設定され、公式イメージのデフォルト（STDOUT 出力）を上書きしてファイルログを有効にします。Redmine のログはワークスペース配下の `log/production.log` に出力されます。`--log-stdout` を指定すると `RAILS_LOG_TO_STDOUT: "true"` に切り替わります。
 
 ---
 

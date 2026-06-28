@@ -118,6 +118,7 @@ compose_renderer_render_compose() {
   local relative_url_root="${RDC_RELATIVE_URL_ROOT:-}"
   local themes_container_path="${RDC_THEMES_CONTAINER_PATH:-/usr/src/redmine/themes}"
   local container_gid="${RDC_CONTAINER_GID:-$(id -g)}"
+  local log_stdout="${RDC_LOG_STDOUT:-false}"
   local project_name
   project_name="$(basename "$workspace_path")"
 
@@ -129,11 +130,14 @@ compose_renderer_render_compose() {
   fi
 
   # Build environment section (DB password mapping, SECRET_KEY_BASE, optional RAILS_RELATIVE_URL_ROOT)
+  local rails_log_to_stdout_value='""'
+  [[ "$log_stdout" == "true" ]] && rails_log_to_stdout_value='"true"'
   local env_entries="      REDMINE_DB_POSTGRES: db
       REDMINE_DB_DATABASE: redmine
       REDMINE_DB_USERNAME: redmine
       REDMINE_DB_PASSWORD: \${DB_PASSWORD}
-      SECRET_KEY_BASE: \${SECRET_KEY_BASE}"
+      SECRET_KEY_BASE: \${SECRET_KEY_BASE}
+      RAILS_LOG_TO_STDOUT: ${rails_log_to_stdout_value}"
   if [[ -n "$relative_url_root" ]]; then
     env_entries="${env_entries}
       RAILS_RELATIVE_URL_ROOT: \"${relative_url_root}\""

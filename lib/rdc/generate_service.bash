@@ -92,6 +92,7 @@ generate_service_run() {
       echo "  --db-publish-port PORT  PostgreSQL host port (default: not published)"
       echo "  --relative-url-root PATH  Redmine subpath (e.g. /redmine). Omit for root (/)."
       echo "  --deployment         Use Gemfile.lock for reproducible bundle install (F0205)"
+      echo "  --log-stdout         Write Redmine logs to STDOUT instead of log/production.log"
       echo "  -v, --verbose        Verbose output"
       echo ""
       echo "After generate, run in order:"
@@ -117,6 +118,7 @@ generate_service_run() {
   local pg_publish_port=""
   local relative_url_root=""
   local deployment_flag=false
+  local log_stdout_flag=false
 
   local args=("$@")
   local i=0
@@ -132,6 +134,7 @@ generate_service_run() {
       --relative-url-root) relative_url_root="${args[$((i+1))]}"; ((i+=2)) ;;
       --relative-url-root=*) relative_url_root="${args[$i]#--relative-url-root=}"; ((i+=1)) ;;
       --deployment) deployment_flag=true; ((i+=1)) ;;
+      --log-stdout) log_stdout_flag=true; ((i+=1)) ;;
       -v|--verbose) export RDC_VERBOSE=true; ((i+=1)) ;;
       --redmine|--redmine=*|--redmica|--redmica=*)
         echo "ERROR: ${args[$i]%%=*} は init のオプションです。generate では指定できません。" >&2
@@ -249,6 +252,7 @@ generate_service_run() {
   export RDC_PG_PUBLISH_PORT="$pg_publish_port"
   export RDC_RELATIVE_URL_ROOT="$relative_url_root"
   export RDC_GENERATE_ID="$generate_completed_at"
+  export RDC_LOG_STDOUT="$log_stdout_flag"
   
   # Detect themes path from image (can be overridden via RDC_THEMES_CONTAINER_PATH for testing)
   local themes_container_path="${RDC_THEMES_CONTAINER_PATH:-}"
@@ -308,7 +312,8 @@ generate_service_run() {
     "relative_url_root=${relative_url_root}" \
     "generate_completed_at=${generate_completed_at}" \
     "generate_status=done" \
-    "deployment_build=${deployment_flag}"
+    "deployment_build=${deployment_flag}" \
+    "log_stdout=${log_stdout_flag}"
 
   logger_info "generate completed. Compose files written to $compose_dir"
   echo "generate completed."

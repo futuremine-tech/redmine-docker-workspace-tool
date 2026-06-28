@@ -51,10 +51,13 @@ Generates Dockerfile, docker-compose.yml, .env, and related files.
 | `--db-publish-port PORT` | Host-published port for PostgreSQL (default: not published — accessible only between containers within the Docker network) |
 | `--relative-url-root PATH` | Sub-path for Redmine (e.g. `/redmine`) |
 | `--deployment` | Use the workspace-root `Gemfile.lock` for `bundle install --deployment` (reproducible builds) |
+| `--log-stdout` | Write Redmine logs to STDOUT (view with `docker compose logs redmine`). When omitted, logs go to `log/production.log` (default) |
 
 When `--deployment` is specified, the generated Dockerfile contains `COPY Gemfile.lock` and runs `bundle install --deployment`. If `Gemfile.lock` is missing from the workspace root, the command fails with guidance to run [`export-gemfile-lock`](#export-gemfile-lock--extract-gemfilelock) first.
 
 Re-running `generate` without `--deployment` reverts to the standard `bundle install` (`deployment_build` is reset to `false` in `.rdc_state`; take effect after `docker compose build`).
+
+Without `--log-stdout` (default), the generated docker-compose.yml sets `RAILS_LOG_TO_STDOUT: ""`, overriding the official image default and enabling file-based logging to `log/production.log` in the workspace. Specifying `--log-stdout` switches to `RAILS_LOG_TO_STDOUT: "true"`.
 
 ---
 
