@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # lib/rdc/export_gemfile_lock_service.bash
 # export-gemfile-lock サブコマンド: ビルド済みイメージから Gemfile.lock を抽出する
-# 根拠要件: RDC-REQ-F1301〜F1305
+# 根拠要件: RDC-REQ-F1305, RDC-REQ-F0960〜F0962（00-REQUIREMENTS-2.0.md未反映。design_log.md [2026-08-04] 参照）
 
 _RDC_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_RDC_LIB_DIR/state_store.bash"

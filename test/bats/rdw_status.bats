@@ -423,3 +423,67 @@ teardown() {
   run grep -qi "deployment" <<< "$output"
   [ "$status" -ne 0 ]
 }
+
+# ---- Themes: 一覧・変更検出 (RDC-REQ-F1008 / F1009) ----
+
+# RDC-REQ-F1009: テーマ変更検出・rebuild警告（テーマパスが /usr/src/redmine/themes のとき）
+@test "[RDC-REQ-F0970] status: RDC_MOCK_THEMES_CHANGED=true のとき themes 変更警告と docker compose build を案内する" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" \
+    "generate_status=done" "generate_completed_at=2026-06-04T02:00:00Z" \
+    "import_status=done" "migrate_status=done" "check_status=done" \
+    "themes_container_path=/usr/src/redmine/themes"
+  export RDC_MOCK_IMAGE_EXISTS=true
+  export RDC_MOCK_IMAGE_GENERATE_ID=2026-06-04T02:00:00Z
+  export RDC_MOCK_THEMES_CHANGED=true
+  cd "$WS"
+  run rdw status
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "theme\|テーマ"
+  echo "$output" | grep -qi "docker compose build"
+  unset RDC_MOCK_IMAGE_EXISTS RDC_MOCK_IMAGE_GENERATE_ID RDC_MOCK_THEMES_CHANGED
+}
+
+# RDC-REQ-F1009: テーマ未変更のとき themes 警告を表示しない
+@test "[RDC-REQ-F0971] status: RDC_MOCK_THEMES_CHANGED=false のとき themes 変更警告を表示しない" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" \
+    "generate_status=done" "generate_completed_at=2026-06-04T02:00:00Z" \
+    "import_status=done" "migrate_status=done" "check_status=done" \
+    "themes_container_path=/usr/src/redmine/themes"
+  export RDC_MOCK_IMAGE_EXISTS=true
+  export RDC_MOCK_IMAGE_GENERATE_ID=2026-06-04T02:00:00Z
+  export RDC_MOCK_THEMES_CHANGED=false
+  cd "$WS"
+  run rdw status
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qv "themes have been"
+  unset RDC_MOCK_IMAGE_EXISTS RDC_MOCK_IMAGE_GENERATE_ID RDC_MOCK_THEMES_CHANGED
+}
+
+# RDC-REQ-F1008: themes ディレクトリにサブディレクトリがあるとき一覧を表示する
+@test "[RDC-REQ-F1008] status: themes/ にテーマがあるとき一覧を表示する" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" \
+    "generate_status=done" "import_status=done" "migrate_status=done" "check_status=done"
+  mkdir -p "$WS/themes/farend_fancy"
+  cd "$WS"
+  run rdw status
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "farend_fancy"
+}
+
+# RDC-REQ-F1008: themes ディレクトリが空のとき (no themes installed) を表示する
+@test "[RDC-REQ-F1008] status: themes/ が空のとき (no themes installed) を表示する" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" \
+    "generate_status=done" "import_status=done" "migrate_status=done" "check_status=done"
+  cd "$WS"
+  run rdw status
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "no themes installed"
+}

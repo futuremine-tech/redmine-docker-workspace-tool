@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # lib/rdc/generate_service.bash
 # Dockerfile / compose / env 生成、plugins 配置整備を担う Service
-# 根拠要件: RDC-REQ-F0301〜RDC-REQ-F0313
+# 根拠要件: RDC-REQ-F0301〜RDC-REQ-F0313, RDC-REQ-F1301〜RDC-REQ-F1304, RDC-REQ-F1307〜RDC-REQ-F1308
 
 _RDC_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_RDC_LIB_DIR/state_store.bash"
@@ -91,6 +91,7 @@ generate_service_run() {
       echo "  --bind-port PORT     Redmine host port (default: auto-detected 38080+)"
       echo "  --db-publish-port PORT  PostgreSQL host port (default: not published)"
       echo "  --relative-url-root PATH  Redmine subpath (e.g. /redmine). Omit for root (/)."
+      echo "  --extra-config-mount FILENAME  Bind mount config/FILENAME into the container (repeatable)"
       echo "  --deployment         Use Gemfile.lock for reproducible bundle install (F0205)"
       echo "  --log-stdout         Write Redmine logs to STDOUT instead of log/production.log"
       echo "  -v, --verbose        Verbose output"
@@ -119,6 +120,7 @@ generate_service_run() {
   local relative_url_root=""
   local deployment_flag=false
   local log_stdout_flag=false
+  local extra_config_mounts=()
 
   local args=("$@")
   local i=0
@@ -133,6 +135,8 @@ generate_service_run() {
       --db-publish-port=*) pg_publish_port="${args[$i]#--db-publish-port=}"; ((i+=1)) ;;
       --relative-url-root) relative_url_root="${args[$((i+1))]}"; ((i+=2)) ;;
       --relative-url-root=*) relative_url_root="${args[$i]#--relative-url-root=}"; ((i+=1)) ;;
+      --extra-config-mount) extra_config_mounts+=("${args[$((i+1))]}"); ((i+=2)) ;;
+      --extra-config-mount=*) extra_config_mounts+=("${args[$i]#--extra-config-mount=}"); ((i+=1)) ;;
       --deployment) deployment_flag=true; ((i+=1)) ;;
       --log-stdout) log_stdout_flag=true; ((i+=1)) ;;
       -v|--verbose) export RDC_VERBOSE=true; ((i+=1)) ;;
@@ -157,6 +161,24 @@ generate_service_run() {
       return 1
     fi
   fi
+
+  # Validate --extra-config-mount (F1302, F1303)
+  local extra_config_mount_filename
+  for extra_config_mount_filename in "${extra_config_mounts[@]:-}"; do
+    [[ -z "$extra_config_mount_filename" ]] && continue
+    if [[ "$extra_config_mount_filename" == /* || "$extra_config_mount_filename" == *..* ]]; then
+      echo "ERROR: Invalid --extra-config-mount value: '${extra_config_mount_filename}'" >&2
+      echo "  Expected: a relative path under config/, without '..' and not starting with '/'." >&2
+      echo "  Example:  --extra-config-mount queue.yml" >&2
+      return 1
+    fi
+    if [[ ! -f "$workspace/config/$extra_config_mount_filename" ]]; then
+      echo "ERROR: config/${extra_config_mount_filename} not found in workspace." >&2
+      echo "  Create the file before running generate, e.g.:" >&2
+      echo "    touch ${workspace}/config/${extra_config_mount_filename}" >&2
+      return 1
+    fi
+  done
 
   # Load state
   if ! state_store_load "$workspace"; then
@@ -253,6 +275,11 @@ generate_service_run() {
   export RDC_RELATIVE_URL_ROOT="$relative_url_root"
   export RDC_GENERATE_ID="$generate_completed_at"
   export RDC_LOG_STDOUT="$log_stdout_flag"
+  local extra_config_mounts_joined=""
+  if [[ ${#extra_config_mounts[@]} -gt 0 ]]; then
+    extra_config_mounts_joined=$(IFS=,; echo "${extra_config_mounts[*]}")
+  fi
+  export RDC_EXTRA_CONFIG_MOUNTS="$extra_config_mounts_joined"
   
   # Detect themes path from image (can be overridden via RDC_THEMES_CONTAINER_PATH for testing)
   local themes_container_path="${RDC_THEMES_CONTAINER_PATH:-}"
@@ -310,10 +337,12 @@ generate_service_run() {
     "redmine_bind=${redmine_bind}" \
     "postgres_publish_port=${pg_publish_port}" \
     "relative_url_root=${relative_url_root}" \
+    "extra_config_mounts=${extra_config_mounts_joined}" \
     "generate_completed_at=${generate_completed_at}" \
     "generate_status=done" \
     "deployment_build=${deployment_flag}" \
-    "log_stdout=${log_stdout_flag}"
+    "log_stdout=${log_stdout_flag}" \
+    "themes_container_path=${themes_container_path}"
 
   logger_info "generate completed. Compose files written to $compose_dir"
   echo "generate completed."
@@ -597,6 +626,7 @@ generate_service_extract_configuration_example() {
     generate_service_write_configuration_yml "$configuration_path"
     cp "$configuration_path" "$configuration_example_path"
     generate_service_write_database_yml "$config_dir"
+    generate_service_write_additional_environment_rb "$config_dir"
     logger_info "Mock: skipping configuration extract from image (RDC_MOCK_SKIP_IMAGE_EXTRACT=1)"
     return 0
   fi
@@ -640,12 +670,29 @@ generate_service_extract_configuration_example() {
       docker rm -f "$container_id" 2>/dev/null || true
       return 1
     fi
+
+    # RDC-REQ-F1307: additional_environment.rb.example の抽出・scaffold
+    local additional_env_example_path="$config_dir/additional_environment.rb.example"
+    local additional_env_path="$config_dir/additional_environment.rb"
+    if docker cp "$container_id:/usr/src/redmine/config/additional_environment.rb.example" "$additional_env_example_path" 2>/dev/null; then
+      logger_info "Extracted additional_environment.rb.example from $image_name"
+      if [[ ! -f "$additional_env_path" ]]; then
+        cp "$additional_env_example_path" "$additional_env_path"
+      fi
+    else
+      logger_info "Warning: Could not extract additional_environment.rb.example from $image_name"
+    fi
+
     docker rm -f "$container_id" 2>/dev/null || true
   fi
 
   if [[ ! -f "$configuration_path" ]]; then
     generate_service_write_configuration_yml "$configuration_path"
   fi
+
+  # RDC-REQ-F1307: additional_environment.rb.example が取得できなかった場合のフォールバック
+  # （bind mount先が未存在だと Docker が空ディレクトリを自動作成し Rails 起動がクラッシュするため必須）
+  generate_service_write_additional_environment_rb "$config_dir"
 
   # Generate database.yml so compose bind-mount provides it reliably
   generate_service_write_database_yml "$config_dir"
@@ -662,6 +709,20 @@ generate_service_write_configuration_yml() {
 # Generated by redmine-docker-workspace.
 # Add Redmine configuration overrides here when needed.
 CFGEOF
+}
+
+# generate_service_write_additional_environment_rb()
+# config/additional_environment.rb が無ければプレースホルダを生成する（RDC-REQ-F1307）
+# 既存ファイルがある場合は上書きしない
+# args: config_dir
+generate_service_write_additional_environment_rb() {
+  local config_dir="${1:?config_dir required}"
+  local path="$config_dir/additional_environment.rb"
+  [[ -f "$path" ]] && return 0
+  cat > "$path" <<'AEEOF'
+# Generated by redmine-docker-workspace.
+# Add Rails::Initializer statements here when needed (see additional_environment.rb.example).
+AEEOF
 }
 
 # generate_service_write_database_yml()

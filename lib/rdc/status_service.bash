@@ -48,13 +48,15 @@ status_service_run() {
   echo ""
   status_service_list_plugins "$workspace"
   echo ""
+  status_service_list_themes "$workspace"
+  echo ""
   status_service_resolve_next_action "$workspace"
   return 0
 }
 
 # status_service_display_after_subcommand()
 # 他 Service が成功終了時に呼び出す薄いラッパー。status と同一のステップ一覧 +
-# プラグイン一覧 + 次アクション表示を行い、.rdc_state は変更しない（読み取り専用）。
+# プラグイン一覧 + テーマ一覧 + 次アクション表示を行い、.rdc_state は変更しない（読み取り専用）。
 # args: workspace_path
 status_service_display_after_subcommand() {
   local workspace="${1:?workspace_path required}"
@@ -63,6 +65,8 @@ status_service_display_after_subcommand() {
   status_service_load_and_display_steps "$workspace"
   echo ""
   status_service_list_plugins "$workspace"
+  echo ""
+  status_service_list_themes "$workspace"
   echo ""
   status_service_resolve_next_action "$workspace"
   return 0
@@ -231,6 +235,13 @@ status_service_resolve_next_action() {
   if status_service_check_build_needed_by_plugins "$workspace_path"; then
     echo "Warning: plugins have been changed after the image was built."
     echo "Run: docker compose build (in $workspace_path), then: redmine-docker-workspace migrate"
+    return 0
+  fi
+
+  # Stage 4c: build done but themes changed after image was built (RDC-REQ-F1009)
+  if status_service_check_build_needed_by_themes "$workspace_path"; then
+    echo "Warning: themes have been added or updated after the image was built."
+    echo "Run: docker compose build && docker compose up -d (in $workspace_path)"
     return 0
   fi
 
@@ -461,6 +472,93 @@ status_service_check_target_image_fresh() {
     echo "false"
   fi
   return 0
+}
+
+# status_service_list_themes()
+# themes/ ディレクトリを走査し、インストール済みテーマ一覧を表示する (RDC-REQ-F1008)
+# args: workspace_path
+status_service_list_themes() {
+  local workspace_path="${1:?workspace_path required}"
+  local themes_dir="$workspace_path/themes"
+
+  echo "Themes:"
+  if [[ ! -d "$themes_dir" ]]; then
+    echo "  (no themes installed)"
+    return 0
+  fi
+
+  local count=0
+  while IFS= read -r theme_dir; do
+    count=$((count + 1))
+    local theme_name
+    theme_name="$(basename "$theme_dir")"
+    printf "  %s\n" "$theme_name"
+  done < <(find "$themes_dir" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort)
+
+  if [[ "$count" -eq 0 ]]; then
+    echo "  (no themes installed)"
+  fi
+}
+
+# status_service_check_build_needed_by_themes()
+# workspace/themes/ 配下のファイルがイメージビルド時刻より新しい場合に true を返す (RDC-REQ-F1009)
+# テーマ管理 CLI がないため plugins_last_changed のような state 変数は使わず、
+# ファイルシステムの mtime を直接参照してイメージビルド時刻と比較する。
+# args: workspace_path
+# returns: 0 if rebuild needed (themes newer than image), 1 otherwise
+status_service_check_build_needed_by_themes() {
+  local workspace_path="${1:?workspace_path required}"
+
+  # Mock support for tests
+  if [[ "${RDC_MOCK_THEMES_CHANGED:-}" == "true" ]]; then return 0; fi
+  if [[ "${RDC_MOCK_THEMES_CHANGED:-}" == "false" ]]; then return 1; fi
+  if [[ "${RDC_ALLOW_MOCK:-}" == "1" ]]; then return 1; fi
+
+  # Redmine 6.x系（themes が public/ 配下でない）のみ対象
+  local themes_container_path
+  themes_container_path=$(grep "^themes_container_path=" "$workspace_path/.rdc_state" 2>/dev/null | cut -d= -f2- || true)
+  if [[ -z "$themes_container_path" || "$themes_container_path" == */public/themes ]]; then
+    return 1
+  fi
+
+  local themes_dir="$workspace_path/themes"
+  if [[ ! -d "$themes_dir" ]]; then return 1; fi
+
+  # themes/ 配下にファイルが存在しない場合はスキップ
+  local file_count
+  file_count=$(find "$themes_dir" -type f 2>/dev/null | wc -l)
+  [[ "${file_count:-0}" -eq 0 ]] && return 1
+
+  if ! status_service_check_docker_daemon_reachable; then return 1; fi
+
+  local compose_file="$workspace_path/docker-compose.yml"
+  [[ ! -f "$compose_file" ]] && return 1
+
+  local image_name
+  image_name=$(awk '
+    /^  redmine:/ { in_svc=1; next }
+    /^  [a-zA-Z_]/ { in_svc=0 }
+    in_svc && /image:/ {
+      sub(/.*image:[[:space:]]*/, "")
+      gsub(/"/, "")
+      print; exit
+    }
+  ' "$compose_file" 2>/dev/null || true)
+  [[ -z "$image_name" ]] && image_name="$(basename "$workspace_path")-redmine"
+
+  if ! docker image inspect "$image_name" > /dev/null 2>&1; then return 1; fi
+
+  local image_created_at image_epoch theme_mtime
+  image_created_at=$(docker image inspect --format '{{.Created}}' "$image_name" 2>/dev/null || true)
+  [[ -z "$image_created_at" ]] && return 1
+  image_epoch=$(date -d "$image_created_at" +%s 2>/dev/null || echo "")
+  [[ -z "$image_epoch" ]] && return 1
+
+  # themes/ 配下全ファイルの最新 mtime（テーマCSS等を確実に捕捉するため深さ制限なし）
+  theme_mtime=$(find "$themes_dir" -type f -printf '%T@\n' 2>/dev/null \
+    | sort -rn | head -1 | cut -d. -f1 || echo "0")
+
+  [[ -n "$theme_mtime" && "$theme_mtime" -gt "$image_epoch" ]]
 }
 
 # status_service_list_plugins()

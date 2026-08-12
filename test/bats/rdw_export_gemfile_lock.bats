@@ -1,7 +1,10 @@
 #!/usr/bin/env bats
 # test/bats/rdw_export_gemfile_lock.bats
 # 結合テスト: export-gemfile-lock サブコマンド
-# 根拠要件: RDC-REQ-F1301〜F1305, RDC-REQ-F0960〜F0962
+# 根拠要件: RDC-REQ-F1305, RDC-REQ-F0960〜F0962
+# 注意: これらのタグは develop/docs/0B-REQUIREMENTS-CHANGE-deployment-build.md および
+# develop/docs/20-DESIGN-INTERNAL.md には記載があるが、00-REQUIREMENTS-2.0.md 本文には
+# 未反映（ドキュメント2.0化時の移行漏れ）。design_log.md [2026-08-04] 参照。
 
 source test/helpers/rdw_helpers.sh
 
@@ -20,7 +23,7 @@ teardown() {
   rm -rf "$WS"
 }
 
-# RDC-REQ-F1301 / RDC-REQ-F0960: モック環境でイメージから Gemfile.lock を取り出しワークスペースルートに配置される
+# RDC-REQ-F0960: モック環境でイメージから Gemfile.lock を取り出しワークスペースルートに配置される
 @test "[RDC-REQ-F0960] export-gemfile-lock: モック環境でイメージから Gemfile.lock をワークスペースルートに取り出す" {
   cd "$WS"
   run rdw export-gemfile-lock
@@ -30,7 +33,7 @@ teardown() {
   echo "$output" | grep -qi "generate --deployment"
 }
 
-# RDC-REQ-F1302 / RDC-REQ-F0961: イメージが存在しない場合は非ゼロで終了する
+# RDC-REQ-F0961: イメージが存在しない場合は非ゼロで終了する
 @test "[RDC-REQ-F0961] export-gemfile-lock: イメージ未存在の場合に非ゼロで終了する" {
   export RDC_MOCK_NO_IMAGE=1
   cd "$WS"
@@ -40,7 +43,7 @@ teardown() {
   unset RDC_MOCK_NO_IMAGE
 }
 
-# RDC-REQ-F1303 / RDC-REQ-F0962: 既存 Gemfile.lock に --force なしで上書きを拒否する
+# RDC-REQ-F0962: 既存 Gemfile.lock に --force なしで上書きを拒否する
 @test "[RDC-REQ-F0962] export-gemfile-lock: 既存 Gemfile.lock に --force なしで上書きを拒否する" {
   echo "existing content" > "$WS/Gemfile.lock"
   cd "$WS"
@@ -51,7 +54,7 @@ teardown() {
   grep -q "existing content" "$WS/Gemfile.lock"
 }
 
-# RDC-REQ-F1303 / RDC-REQ-F0962: --force ありでは既存 Gemfile.lock を上書きする
+# RDC-REQ-F0962: --force ありでは既存 Gemfile.lock を上書きする
 @test "[RDC-REQ-F0962] export-gemfile-lock: --force ありで既存 Gemfile.lock を上書きする" {
   echo "existing content" > "$WS/Gemfile.lock"
   cd "$WS"

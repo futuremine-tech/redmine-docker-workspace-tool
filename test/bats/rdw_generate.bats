@@ -182,6 +182,114 @@ teardown() {
   [ "$val" = "/redmine/sub" ]
 }
 
+# ---- extra-config-mount ----
+
+# RDC-REQ-F0310: generate --help に --extra-config-mount が含まれる
+@test "[RDC-REQ-F0310] generate --help: --extra-config-mount が Usage に含まれる" {
+  run rdw generate --help
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q -- "--extra-config-mount"
+}
+
+# RDC-REQ-F1301: --extra-config-mount 指定時に compose に bind mount 行が含まれる
+@test "[RDC-REQ-F1301] generate: --extra-config-mount queue.yml を指定すると compose に bind mount 行が含まれる" {
+  cd "$WS"
+  mkdir -p "$WS/config"
+  touch "$WS/config/queue.yml"
+  run rdw generate --extra-config-mount queue.yml
+  [ "$status" -eq 0 ]
+  grep -q "config/queue.yml:/usr/src/redmine/config/queue.yml" "$WS/docker-compose.yml"
+}
+
+# RDC-REQ-F1301: --extra-config-mount を複数回指定すると両方が compose に含まれる
+@test "[RDC-REQ-F1301] generate: --extra-config-mount を複数回指定すると両方が compose に含まれる" {
+  cd "$WS"
+  mkdir -p "$WS/config"
+  touch "$WS/config/queue.yml" "$WS/config/recurring.yml"
+  run rdw generate --extra-config-mount queue.yml --extra-config-mount recurring.yml
+  [ "$status" -eq 0 ]
+  grep -q "config/queue.yml:/usr/src/redmine/config/queue.yml" "$WS/docker-compose.yml"
+  grep -q "config/recurring.yml:/usr/src/redmine/config/recurring.yml" "$WS/docker-compose.yml"
+}
+
+# RDC-REQ-F1301: 省略時は追加 bind mount 行が含まれない（既存挙動を破壊しない）
+@test "[RDC-REQ-F1301] generate: --extra-config-mount 省略時は追加 bind mount 行が含まれない" {
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -qv "queue.yml" "$WS/docker-compose.yml"
+}
+
+# RDC-REQ-F1301: --extra-config-mount 指定時に .rdc_state に保存される
+@test "[RDC-REQ-F1301] generate: --extra-config-mount queue.yml を指定すると .rdc_state に保存される" {
+  cd "$WS"
+  mkdir -p "$WS/config"
+  touch "$WS/config/queue.yml"
+  run rdw generate --extra-config-mount queue.yml
+  [ "$status" -eq 0 ]
+  val=$(rdw_read_state "$WS" "extra_config_mounts")
+  [ "$val" = "queue.yml" ]
+}
+
+# RDC-REQ-F1302: 指定ファイルがワークスペースに存在しない場合は失敗する
+@test "[RDC-REQ-F1302] generate: --extra-config-mount で存在しないファイルを指定すると失敗する" {
+  cd "$WS"
+  run rdw generate --extra-config-mount queue.yml
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "queue.yml"
+}
+
+# RDC-REQ-F1303: パストラバーサルを含む値は失敗する
+@test "[RDC-REQ-F1303] generate: --extra-config-mount ../secrets.yml（パストラバーサル）は失敗する" {
+  cd "$WS"
+  run rdw generate --extra-config-mount ../secrets.yml
+  [ "$status" -ne 0 ]
+}
+
+# RDC-REQ-F1303: 先頭 / の値は失敗する
+@test "[RDC-REQ-F1303] generate: --extra-config-mount /etc/passwd（先頭 /）は失敗する" {
+  cd "$WS"
+  run rdw generate --extra-config-mount /etc/passwd
+  [ "$status" -ne 0 ]
+}
+
+# ---- additional_environment.rb (F1307/F1308) ----
+
+# RDC-REQ-F1307: config/additional_environment.rb が未存在なら generate で作成される
+@test "[RDC-REQ-F1307] generate: config/additional_environment.rb が未存在なら作成される" {
+  cd "$WS"
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  run rdw generate
+  [ "$status" -eq 0 ]
+  [ -f "$WS/config/additional_environment.rb" ]
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# RDC-REQ-F1307: 既存の config/additional_environment.rb は上書きされない
+@test "[RDC-REQ-F1307] generate: 既存の config/additional_environment.rb は上書きされない" {
+  cd "$WS"
+  mkdir -p "$WS/config"
+  echo "config.log_level = :debug" > "$WS/config/additional_environment.rb"
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q "config.log_level = :debug" "$WS/config/additional_environment.rb"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# RDC-REQ-F1308: compose に additional_environment.rb の bind mount 行が常に含まれる
+@test "[RDC-REQ-F1308] generate: compose に additional_environment.rb の bind mount 行が含まれる" {
+  cd "$WS"
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q "config/additional_environment.rb:/usr/src/redmine/config/additional_environment.rb" "$WS/docker-compose.yml"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
 # RDC-REQ-F0928: --base-image 指定イメージが直接用いられ、リポジトリハードコード処理が適用されない
 @test "[RDC-REQ-F0928] generate: --base-image 指定イメージが compose に直接反映される" {
   # explicit mode での state を設定
@@ -767,5 +875,46 @@ ENVEOF
   grep -q "bundle install" "$WS/Dockerfile"
   run grep "bundle install --deployment" "$WS/Dockerfile"
   [ "$status" -ne 0 ]
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# ---- assets:precompile (RDC-REQ-F0303G / F0303H) ----
+
+# RDC-REQ-F0303G: テーマパスが /usr/src/redmine/themes のとき generate は assets:precompile を含む Dockerfile を生成する
+@test "[RDC-REQ-F0967] generate: RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes のとき Dockerfile に assets:precompile が含まれる" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q "assets:precompile" "$WS/Dockerfile"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# RDC-REQ-F0303G: テーマパスが /usr/src/redmine/public/themes のとき generate は assets:precompile を含まない Dockerfile を生成する
+@test "[RDC-REQ-F0968] generate: RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/public/themes のとき Dockerfile に assets:precompile が含まれない" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/public/themes
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  run grep "assets:precompile" "$WS/Dockerfile"
+  [ "$status" -ne 0 ]
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# RDC-REQ-F0303H: --relative-url-root 指定時は compose build.args に RAILS_RELATIVE_URL_ROOT の値が設定される
+@test "[RDC-REQ-F0969] generate: --relative-url-root /redmine のとき compose build.args に RAILS_RELATIVE_URL_ROOT=/redmine が含まれる" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  cd "$WS"
+  run rdw generate --relative-url-root /redmine
+  [ "$status" -eq 0 ]
+  grep -q "RAILS_RELATIVE_URL_ROOT" "$WS/docker-compose.yml"
+  grep -q '"/redmine"' "$WS/docker-compose.yml"
+  grep -q "secret_key_base" "$WS/docker-compose.yml"
   unset RDC_MOCK_SKIP_IMAGE_EXTRACT
 }

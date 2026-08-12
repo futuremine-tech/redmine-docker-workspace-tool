@@ -337,6 +337,65 @@ EOF
   echo "$output" | grep -q "run Rails.application"
 }
 
+# ---- ComposeRenderer: extra-config-mount ----
+
+# RDC-REQ-F1301: RDC_EXTRA_CONFIG_MOUNTS 指定時に該当 volumes 行が含まれる
+@test "[RDC-REQ-F1301] ComposeRenderer: RDC_EXTRA_CONFIG_MOUNTS=queue.yml のとき compose に bind mount 行が含まれる" {
+  export RDC_WORKSPACE_PATH="$WS"
+  export RDC_EXTRA_CONFIG_MOUNTS="queue.yml"
+  run compose_renderer_render_compose
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "config/queue.yml:/usr/src/redmine/config/queue.yml"
+}
+
+# RDC-REQ-F1301: カンマ区切り複数指定で両方の volumes 行が含まれる
+@test "[RDC-REQ-F1301] ComposeRenderer: RDC_EXTRA_CONFIG_MOUNTS=queue.yml,recurring.yml のとき両方が含まれる" {
+  export RDC_WORKSPACE_PATH="$WS"
+  export RDC_EXTRA_CONFIG_MOUNTS="queue.yml,recurring.yml"
+  run compose_renderer_render_compose
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "config/queue.yml:/usr/src/redmine/config/queue.yml"
+  echo "$output" | grep -q "config/recurring.yml:/usr/src/redmine/config/recurring.yml"
+}
+
+# RDC-REQ-F1301: RDC_EXTRA_CONFIG_MOUNTS 未設定のとき追加行が含まれない
+@test "[RDC-REQ-F1301] ComposeRenderer: RDC_EXTRA_CONFIG_MOUNTS 未設定のとき追加 volumes 行が含まれない" {
+  export RDC_WORKSPACE_PATH="$WS"
+  export RDC_EXTRA_CONFIG_MOUNTS=""
+  run compose_renderer_render_compose
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qv "/usr/src/redmine/config/queue.yml"
+}
+
+# ---- ComposeRenderer: additional_environment.rb (F1308) ----
+
+# RDC-REQ-F1308: additional_environment.rb の bind mount 行が常に含まれる
+@test "[RDC-REQ-F1308] ComposeRenderer: additional_environment.rb の bind mount 行が常に含まれる" {
+  export RDC_WORKSPACE_PATH="$WS"
+  run compose_renderer_render_compose
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "config/additional_environment.rb:/usr/src/redmine/config/additional_environment.rb"
+}
+
+# ---- GenerateService: write_additional_environment_rb (F1307) ----
+
+# RDC-REQ-F1307: 未存在時にプレースホルダを生成する
+@test "[RDC-REQ-F1307] GenerateService: additional_environment.rb 未存在時にプレースホルダを生成する" {
+  mkdir -p "$WS/config"
+  run generate_service_write_additional_environment_rb "$WS/config"
+  [ "$status" -eq 0 ]
+  [ -f "$WS/config/additional_environment.rb" ]
+}
+
+# RDC-REQ-F1307: 既存ファイルを上書きしない
+@test "[RDC-REQ-F1307] GenerateService: additional_environment.rb 既存時は上書きしない" {
+  mkdir -p "$WS/config"
+  echo "config.log_level = :debug" > "$WS/config/additional_environment.rb"
+  run generate_service_write_additional_environment_rb "$WS/config"
+  [ "$status" -eq 0 ]
+  grep -q "config.log_level = :debug" "$WS/config/additional_environment.rb"
+}
+
 # ---- PrepareDbService: --from-external-db PGPASSWORD 挙動 ----
 
 # RDC-REQ-F0351B: database.yml に password があれば PGPASSWORD を pg_dump へ渡す
@@ -420,4 +479,65 @@ PGEOF
   [ "$result" -eq 0 ]
   grep -q "PGPASSWORD=__NOT_SET__" "$log_file"
   rm -rf "$fake_bin"
+}
+
+# ---- ComposeRenderer: assets:precompile (RDC-REQ-F0303G / F0303H) ----
+
+# RDC-REQ-F0303G: テーマパスが /usr/src/redmine/themes のとき Dockerfile に assets:precompile が含まれる
+@test "[RDC-REQ-F0303G] ComposeRenderer: themes=/usr/src/redmine/themes のとき Dockerfile に assets:precompile が含まれる" {
+  export RDC_WORKSPACE_PATH="$WS"
+  export RDC_THEMES_CONTAINER_PATH="/usr/src/redmine/themes"
+  run compose_renderer_render_dockerfile
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "assets:precompile"
+}
+
+# RDC-REQ-F0303G: テーマパスが /usr/src/redmine/themes のとき Dockerfile に ARG RAILS_RELATIVE_URL_ROOT が含まれる
+@test "[RDC-REQ-F0303G] ComposeRenderer: themes=/usr/src/redmine/themes のとき Dockerfile に ARG RAILS_RELATIVE_URL_ROOT が含まれる" {
+  export RDC_WORKSPACE_PATH="$WS"
+  export RDC_THEMES_CONTAINER_PATH="/usr/src/redmine/themes"
+  run compose_renderer_render_dockerfile
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "ARG RAILS_RELATIVE_URL_ROOT"
+}
+
+# RDC-REQ-F0303G: テーマパスが /usr/src/redmine/public/themes のとき Dockerfile に assets:precompile が含まれない
+@test "[RDC-REQ-F0303G] ComposeRenderer: themes=/usr/src/redmine/public/themes のとき Dockerfile に assets:precompile が含まれない" {
+  export RDC_WORKSPACE_PATH="$WS"
+  export RDC_THEMES_CONTAINER_PATH="/usr/src/redmine/public/themes"
+  run compose_renderer_render_dockerfile
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qv "assets:precompile"
+}
+
+# RDC-REQ-F0303G: --deployment 時もテーマパスが /usr/src/redmine/themes なら Dockerfile に assets:precompile が含まれる
+@test "[RDC-REQ-F0303G] ComposeRenderer: deployment=true かつ themes=/usr/src/redmine/themes のとき Dockerfile に assets:precompile が含まれる" {
+  export RDC_WORKSPACE_PATH="$WS"
+  export RDC_THEMES_CONTAINER_PATH="/usr/src/redmine/themes"
+  export RDC_DEPLOYMENT_BUILD="true"
+  run compose_renderer_render_dockerfile
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "assets:precompile"
+  unset RDC_DEPLOYMENT_BUILD
+}
+
+# RDC-REQ-F0303H: テーマパスが /usr/src/redmine/themes のとき compose に build.args と secret_key_base が含まれる
+@test "[RDC-REQ-F0303H] ComposeRenderer: themes=/usr/src/redmine/themes のとき compose に RAILS_RELATIVE_URL_ROOT args と secret_key_base が含まれる" {
+  export RDC_WORKSPACE_PATH="$WS"
+  export RDC_THEMES_CONTAINER_PATH="/usr/src/redmine/themes"
+  export RDC_RELATIVE_URL_ROOT=""
+  run compose_renderer_render_compose
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "RAILS_RELATIVE_URL_ROOT"
+  echo "$output" | grep -q "secret_key_base"
+}
+
+# RDC-REQ-F0303H: テーマパスが /usr/src/redmine/public/themes のとき compose に build.args と secrets が含まれない
+@test "[RDC-REQ-F0303H] ComposeRenderer: themes=/usr/src/redmine/public/themes のとき compose に secret_key_base が含まれない" {
+  export RDC_WORKSPACE_PATH="$WS"
+  export RDC_THEMES_CONTAINER_PATH="/usr/src/redmine/public/themes"
+  export RDC_RELATIVE_URL_ROOT=""
+  run compose_renderer_render_compose
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qv "secret_key_base"
 }

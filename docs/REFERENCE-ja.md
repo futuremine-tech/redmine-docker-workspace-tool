@@ -50,6 +50,7 @@ Dockerfile、docker-compose.yml、.env などを生成します。
 | `--bind-port PORT` | Redmine ホスト公開ポート（既定: 自動検出） |
 | `--db-publish-port PORT` | PostgreSQL をホストへ公開するポート（既定: ホスト非公開・Docker ネットワーク内のコンテナ間のみ接続可） |
 | `--relative-url-root PATH` | サブディレクトリ運用パス（例: `/redmine`） |
+| `--extra-config-mount FILENAME` | `config/FILENAME` をコンテナ内 `/usr/src/redmine/config/FILENAME` へ bind mount する（複数回指定可）。`FILENAME` は `config/` 配下の相対パス（`..` 不可、先頭 `/` 不可）で、ワークスペースに事前にファイルが存在している必要がある |
 | `--deployment` | ワークスペースルートの `Gemfile.lock` を使って `bundle install --deployment` を実行する（再現性のあるビルド） |
 | `--log-stdout` | Redmine のログを STDOUT へ出力する（`docker compose logs redmine` で参照）。未指定時は `log/production.log` へファイル出力 |
 
@@ -57,7 +58,13 @@ Dockerfile、docker-compose.yml、.env などを生成します。
 
 `--deployment` なしで再実行すると、通常の `bundle install` に戻ります（`.rdc_state` の `deployment_build` が `false` に更新され、`docker compose build` で反映されます）。
 
+`--extra-config-mount` は bind mount の配線のみを行い、ファイル内容の生成・雛形提供は行いません。Redmine core が `.example` を同梱しない、プラグイン固有の追加configファイル（例: `redmine_solid_queue` プラグインの `config/queue.yml`）向けの仕組みです。`generate` 実行前に `config/` 配下へファイルを作成しておいてください。
+
+`generate` は `config/additional_environment.rb` も、`configuration.yml`・`database.yml` と同様にオプション指定不要で常時bind mountします。このファイルはRedmine公式が用意するRails initializerカスタマイズ用の拡張ポイントです（生成される `config/additional_environment.rb.example` 内のコメント参照。例: `config.active_job.queue_adapter = :inline`）。`config/additional_environment.rb` が未存在の場合、`generate` はイメージ内の `additional_environment.rb.example`（全行コメントのみで安全な既定値）からscaffoldします。既存ファイルは上書きしません。
+
 `--log-stdout` なし（デフォルト）では、生成される docker-compose.yml に `RAILS_LOG_TO_STDOUT: ""` が設定され、公式イメージのデフォルト（STDOUT 出力）を上書きしてファイルログを有効にします。Redmine のログはワークスペース配下の `log/production.log` に出力されます。`--log-stdout` を指定すると `RAILS_LOG_TO_STDOUT: "true"` に切り替わります。
+
+**テーマのアセットプリコンパイル（Redmine 6.x 以降）**: Redmine 6.x 以降ではテーマ CSS がアセットパイプライン経由で配信されるため、`assets:precompile` が必要です。`generate` が生成する Dockerfile は、テーマパスが `/usr/src/redmine/public/themes` 配下でない場合（= 6.x 系）に `docker compose build` 時に自動で `assets:precompile` を実行します。`SECRET_KEY_BASE` は `.env` の値を Docker build secret 経由で参照し、イメージレイヤーには残りません。`workspace/themes/` にテーマを配置後、`docker compose build && docker compose up -d` を実行してください。Redmine 5.x 系（テーマが `public/themes/` 配下）では `assets:precompile` は実行されません。
 
 ---
 
@@ -130,10 +137,13 @@ Plugins:
   my_custom_plugin           https://github.com/example/my_custom_plugin.git
   legacy_plugin              [manual]
 
+Themes:
+  farend_fancy               (manual)
+
 Next action: All steps complete. Run 'docker compose up -d' to start Redmine.
 ```
 
-`generate --deployment` で構築した場合、generate 行に `[deployment build]` が付きます。プラグインを追加・削除した後にイメージの再ビルドが必要な場合は、`docker compose build` の実行を案内します。
+`generate --deployment` で構築した場合、generate 行に `[deployment build]` が付きます。プラグインを追加・削除した後にイメージの再ビルドが必要な場合、または Redmine 6.x 系でテーマを追加・更新した後にイメージの再ビルドが必要な場合は、`docker compose build` の実行を案内します。
 
 ---
 
