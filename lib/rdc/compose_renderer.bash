@@ -120,8 +120,9 @@ EOF
 
 # Precompile assets including themes for Redmine 6.x+ (RDC-REQ-F0303G)
 ARG RAILS_RELATIVE_URL_ROOT=""
-RUN --mount=type=secret,id=secret_key_base \
+RUN --mount=type=secret,id=secret_key_base,mode=0444 \
     --mount=type=bind,source=themes,target=${themes_container_path} \
+    --mount=type=bind,source=config/database.yml,target=/usr/src/redmine/config/database.yml,readonly \
     SECRET_KEY_BASE=\$(cat /run/secrets/secret_key_base) \
     RAILS_ENV=production \
     RAILS_RELATIVE_URL_ROOT="\${RAILS_RELATIVE_URL_ROOT}" \

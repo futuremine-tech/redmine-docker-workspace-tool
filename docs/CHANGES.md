@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.2] - 2026-08-12
+
+### Fixed
+
+- Fixed the Redmine 6.x `assets:precompile` build step (introduced in 0.9.1) failing with `Permission denied` when reading the `secret_key_base` build secret. The generated Dockerfile now mounts the secret with `mode=0444` so the non-root `redmine` user can read it.
+- Fixed the same `assets:precompile` step aborting with `Please configure your config/database.yml first`. The generated Dockerfile now bind mounts `config/database.yml` into this step, matching the `bundle install` step.
+
 ## [0.9.1] - 2026-08-12
 
 ### Added
