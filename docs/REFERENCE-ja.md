@@ -34,6 +34,16 @@ redmine-docker-workspace init --target PATH [--mode <passenger|workspace|new>] [
 | `--list` | 対応イメージ一覧を表示して終了（`x.y.z` 形式のみ、`--target` 不要） |
 | `--list-all` | 対応イメージ一覧を表示して終了（派生タグ含む全件、`--target` 不要） |
 
+`--redmine TAG` はタグのバージョンに応じて使用するイメージリポジトリを自動選択する。`7.0.0`
+以降（および`latest`等の非セマンティックバージョンタグ）は、OSパッケージの脆弱性対策と
+Pandoc同梱（Redmine 7.0以降の添付ファイルプレビュー機能に必要）を施した`futuremine/redmine:TAG`
+を使用し、`7.0.0`未満は公式の`redmine:TAG`を使用する。バージョンに関わらず公式イメージを
+使いたい場合は、代わりに`--base-image redmine:TAG`を指定すればこの自動選択を回避できる。
+解決された`futuremine/redmine:TAG`が取得できない場合（このタグ群はオンデマンドでビルドされて
+おり、まだ全リリースを網羅しているとは限らない）、`generate`は`--base-image`での再実行を
+案内して失敗する。`--redmica TAG`も同様に、`3.2.0`未満は`redmica/redmica:TAG`、`3.2.0`以降
+（公式イメージがそのバージョンでタグ提供を終了したため）は`futuremine/redmica:TAG`を選択する。
+
 ---
 
 ## `generate` — Docker 設定生成

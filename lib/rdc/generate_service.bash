@@ -654,6 +654,10 @@ generate_service_extract_configuration_example() {
   container_id=$(docker create "$image_name" /bin/sh 2>/dev/null) || {
     if [[ "$pull_succeeded" == "false" ]]; then
       logger_error "Image not available from registry and not found locally: $image_name"
+      if [[ "$image_name" == futuremine/redmine:* ]]; then
+        logger_error "Hint: futuremine/redmine tags are built on demand and may not cover every Redmine release yet."
+        logger_error "      To use the official image instead, re-run with: --base-image redmine:${image_tag}"
+      fi
       return 1
     fi
     logger_error "Could not create temporary container from $image_name"

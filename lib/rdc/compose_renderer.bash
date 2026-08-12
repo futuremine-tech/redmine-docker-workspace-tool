@@ -20,11 +20,28 @@ _compose_renderer_redmica_official_eol() {
   [[ "$lower" == "$eol" ]]
 }
 
+# _compose_renderer_redmine_prefers_futuremine()
+# Redmine の tag が futuremine/redmine 優先バージョン (7.0.0) 以降かどうかを判定する
+# args: tag
+# returns: 0 if >= 7.0.0 or non-semver (use futuremine/redmine), 1 if < 7.0.0 (use redmine:<tag>)
+_compose_renderer_redmine_prefers_futuremine() {
+  local tag="${1:?tag required}"
+  local threshold="7.0.0"
+  # 非 semver タグ (latest 等) は futuremine 優先として扱う
+  if [[ ! "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9] ]]; then
+    return 0
+  fi
+  local lower
+  lower=$(printf '%s\n%s\n' "$threshold" "$tag" | sort -V | head -1)
+  [[ "$lower" == "$threshold" ]]
+}
+
 # compose_renderer_resolve_image_name()
 # product 名から Docker Hub イメージ名を解決する
 # RedMica 3.2.0 以降は公式イメージが終了したため futuremine/redmica を使用する
+# Redmine 7.0.0 以降は OS 脆弱性対策・pandoc 同梱の futuremine/redmine を優先する (RDC-REQ-F1309)
 # args: product, tag
-# stdout: image_name (e.g. redmica/redmica:3.1.7, futuremine/redmica:3.2.0)
+# stdout: image_name (e.g. redmica/redmica:3.1.7, futuremine/redmica:3.2.0, futuremine/redmine:7.0.0)
 compose_renderer_resolve_image_name() {
   local product="${1:?product required}"
   local tag="${2:?tag required}"
@@ -35,6 +52,13 @@ compose_renderer_resolve_image_name() {
         echo "futuremine/redmica:${tag}"
       else
         echo "redmica/redmica:${tag}"
+      fi
+      ;;
+    redmine)
+      if _compose_renderer_redmine_prefers_futuremine "$tag"; then
+        echo "futuremine/redmine:${tag}"
+      else
+        echo "redmine:${tag}"
       fi
       ;;
     *)  echo "${product}:${tag}" ;;

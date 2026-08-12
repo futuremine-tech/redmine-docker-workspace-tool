@@ -446,14 +446,21 @@ init_service_reset_downstream_states_if_reinit() {
 }
 
 # init_service_list_tags()
-# 対応 3 リポジトリのタグ一覧を表示する
+# 対応 4 リポジトリのタグ一覧を表示する
+# semver モード (--list) では Redmine 系を RDC-REQ-F1309 の 7.0.0 閾値と一致させて振り分け表示する
 # args: filter_mode (semver|all)
 # returns: 0 on success, 1 if all repos failed
 init_service_list_tags() {
   local filter="${1:-semver}"
   local any_error=false
 
-  _init_service_fetch_repo_tags "library/redmine"    "Redmine (official)           --redmine TAG" "$filter"  || any_error=true
+  if [[ "$filter" == "semver" ]]; then
+    _init_service_fetch_repo_tags "library/redmine"    "Redmine < 7.0.0 (official)    --redmine TAG" "$filter" "7.0.0" || any_error=true
+    _init_service_fetch_repo_tags "futuremine/redmine" "Redmine >= 7.0.0 (futuremine) --redmine TAG" "$filter"        || any_error=true
+  else
+    _init_service_fetch_repo_tags "library/redmine"    "Redmine (official)            --redmine TAG" "$filter" || any_error=true
+    _init_service_fetch_repo_tags "futuremine/redmine" "Redmine (futuremine)          --redmine TAG" "$filter" || any_error=true
+  fi
   _init_service_fetch_repo_tags "redmica/redmica"    "RedMica < 3.2.0              --redmica TAG" "$filter"  || any_error=true
   _init_service_fetch_repo_tags "futuremine/redmica" "RedMica >= 3.2.0             --redmica TAG" "$filter"  || any_error=true
 
@@ -463,12 +470,13 @@ init_service_list_tags() {
 
 # _init_service_fetch_repo_tags()
 # 1 リポジトリ分のタグを全ページ取得してフィルタ・ソート・表示する
-# args: repo (e.g. library/redmine), label, filter_mode (semver|all)
+# args: repo (e.g. library/redmine), label, filter_mode (semver|all), max_version_exclusive (optional, semver 時のみ有効)
 # returns: 0 on success, 1 on fetch error
 _init_service_fetch_repo_tags() {
   local repo="${1:?repo required}"
   local label="${2:?label required}"
   local filter="${3:-semver}"
+  local max_version_exclusive="${4:-}"
 
   echo ""
   echo "=== $label ==="
@@ -518,6 +526,16 @@ print(json.load(sys.stdin).get('next') or '')
     return 1
   fi
 
+  if [[ "$filter" == "semver" && -n "$max_version_exclusive" ]]; then
+    local filtered_tags=()
+    local t lower
+    for t in "${all_tags[@]}"; do
+      lower=$(printf '%s\n%s\n' "$t" "$max_version_exclusive" | sort -V | head -1)
+      [[ "$lower" == "$t" && "$t" != "$max_version_exclusive" ]] && filtered_tags+=("$t")
+    done
+    all_tags=("${filtered_tags[@]}")
+  fi
+
   if [[ ${#all_tags[@]} -eq 0 ]]; then
     echo "  (no matching tags)"
     return 0
@@ -537,7 +555,9 @@ _init_service_hub_get() {
 
   if [[ "${RDC_ALLOW_MOCK:-}" == "1" ]]; then
     if [[ "$url" == *"library/redmine"* ]]; then
-      printf '{"results":[{"name":"6.0.3"},{"name":"6.0.3-alpine"},{"name":"6.0.2"},{"name":"6.0.2-alpine"},{"name":"latest"}],"next":null}'
+      printf '{"results":[{"name":"7.0.0"},{"name":"6.0.3"},{"name":"6.0.3-alpine"},{"name":"6.0.2"},{"name":"6.0.2-alpine"},{"name":"latest"}],"next":null}'
+    elif [[ "$url" == *"futuremine/redmine"* ]]; then
+      printf '{"results":[{"name":"7.0.0"},{"name":"7.0.0-alpine"},{"name":"6.1.3"}],"next":null}'
     elif [[ "$url" == *"redmica/redmica"* ]]; then
       printf '{"results":[{"name":"2.7.0"},{"name":"2.7.0-alpine"},{"name":"2.6.0"}],"next":null}'
     elif [[ "$url" == *"futuremine/redmica"* ]]; then

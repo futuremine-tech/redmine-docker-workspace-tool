@@ -34,6 +34,8 @@ redmine-docker-workspace init --target PATH [--mode <passenger|workspace|new>] [
 | `--list` | List supported images and exit — `x.y.z` tags only, `--target` not required |
 | `--list-all` | List supported images and exit — all tags including derived, `--target` not required |
 
+`--redmine TAG` automatically selects the image repository based on the tag version: `7.0.0` and later (and non-semver tags such as `latest`) use `futuremine/redmine:TAG`, which applies OS package security patches and bundles Pandoc (required for Redmine 7.0+'s attachment preview feature). Tags below `7.0.0` use the official `redmine:TAG`. To force the official image regardless of version, use `--base-image redmine:TAG` instead — this bypasses the automatic selection. If the resolved `futuremine/redmine:TAG` isn't available (these tags are built on demand and may not cover every release yet), `generate` fails with a hint to re-run with `--base-image`. `--redmica TAG` selects between `redmica/redmica:TAG` (below `3.2.0`) and `futuremine/redmica:TAG` (`3.2.0` and later, since the official image stopped publishing new tags at that version) the same way.
+
 ---
 
 ## `generate` — Generate Docker Configuration

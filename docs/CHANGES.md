@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.3] - 2026-08-12
+
+### Added
+
+- `--redmine TAG` now automatically selects the image repository based on the tag version: `7.0.0` and later (and non-semver tags such as `latest`) use `futuremine/redmine:TAG`, which applies OS package security patches and bundles Pandoc (required for Redmine 7.0+'s attachment preview feature). Tags below `7.0.0` continue to use the official `redmine:TAG`. To force the official image regardless of version, use `--base-image redmine:TAG` instead. If the resolved `futuremine/redmine:TAG` isn't available, `generate` fails with a hint to re-run with `--base-image` (no automatic fallback).
+- `init --list` now shows `futuremine/redmine` tags (`>= 7.0.0`) alongside the official `redmine` tags (`< 7.0.0`), matching the new selection behavior. `init --list-all` shows the full tag set from both repositories without this version filtering.
+
 ## [0.9.2] - 2026-08-12
 
 ### Fixed

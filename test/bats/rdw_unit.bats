@@ -189,6 +189,46 @@ teardown() {
   echo "$output" | grep -q '^FROM futuremine/redmica:3.2.0$'
 }
 
+# RDC-REQ-F1309: Redmine 7.0.0 以降は futuremine/redmine を優先する
+@test "[RDC-REQ-F1309] ComposeRenderer: redmine 7.0.0 の image 名を futuremine/redmine:<tag> に解決する" {
+  run compose_renderer_resolve_image_name redmine 7.0.0
+  [ "$status" -eq 0 ]
+  [ "$output" = "futuremine/redmine:7.0.0" ]
+}
+
+@test "[RDC-REQ-F1309] ComposeRenderer: redmine 6.1.3 の image 名を redmine:<tag>（公式）に解決する" {
+  run compose_renderer_resolve_image_name redmine 6.1.3
+  [ "$status" -eq 0 ]
+  [ "$output" = "redmine:6.1.3" ]
+}
+
+@test "[RDC-REQ-F1309] ComposeRenderer: redmine latest の image 名を futuremine/redmine:latest に解決する" {
+  run compose_renderer_resolve_image_name redmine latest
+  [ "$status" -eq 0 ]
+  [ "$output" = "futuremine/redmine:latest" ]
+}
+
+@test "[RDC-REQ-F1309] ComposeRenderer: --base-image futuremine/redmine:6.1.3 は自動選択を適用せずそのまま使う" {
+  run compose_renderer_resolve_image_name explicit futuremine/redmine:6.1.3
+  [ "$status" -eq 0 ]
+  [ "$output" = "futuremine/redmine:6.1.3" ]
+}
+
+@test "[RDC-REQ-F1309] ComposeRenderer: --base-image redmine:7.0.0 は閾値判定を適用せず公式イメージのまま使う" {
+  run compose_renderer_resolve_image_name explicit redmine:7.0.0
+  [ "$status" -eq 0 ]
+  [ "$output" = "redmine:7.0.0" ]
+}
+
+@test "[RDC-REQ-F1309] ComposeRenderer: redmine 7.0.0 の Dockerfile は futuremine/redmine:<tag> を FROM に使う" {
+  export RDC_WORKSPACE_PATH="$WS"
+  export RDC_PRODUCT="redmine"
+  export RDC_TARGET_IMAGE_TAG="7.0.0"
+  run compose_renderer_render_dockerfile
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '^FROM futuremine/redmine:7.0.0$'
+}
+
 # RDC-REQ-F0354: fresh-db は force-recreate 付きで DB コンテナを起動する
 @test "[RDC-REQ-F0354] PrepareDbService: fresh-db は force-recreate 付きで DB コンテナを起動する" {
   local fake_dir log_file

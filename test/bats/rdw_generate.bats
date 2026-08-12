@@ -398,6 +398,43 @@ EOF
   echo "$output" | grep -qi "local\|create temporary container\|image"
 }
 
+# RDC-REQ-F1310: futuremine/redmine の pull 失敗かつローカルなしでは --base-image を案内して失敗する
+@test "[RDC-REQ-F1310] generate: futuremine/redmine の pull 失敗時は --base-image redmine:<tag> を案内する" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=7.0.0" "init_status=done" "dbdump_status=done" \
+    "generate_status=pending"
+  mkdir -p "$WS/mockbin"
+  cat > "$WS/mockbin/docker" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+  pull)
+    exit 1
+    ;;
+  create)
+    exit 1
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+  chmod +x "$WS/mockbin/docker"
+  cd "$WS"
+  export PATH="$WS/mockbin:$PATH"
+  export RDC_ALLOW_MOCK=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  run rdw generate
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q "futuremine/redmine:7.0.0"
+  echo "$output" | grep -q -- "--base-image redmine:7.0.0"
+}
+
 # RDC-REQ-F0303: .env が既にある場合は DB_PASSWORD を再利用する
 @test "[RDC-REQ-F0303] generate: 既存 .env の DB_PASSWORD を再利用する" {
   mkdir -p "$WS/mockbin"

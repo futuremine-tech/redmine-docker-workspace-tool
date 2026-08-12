@@ -432,3 +432,29 @@ EOF
   echo "$output" | grep -q "redmica/redmica:2\."
   echo "$output" | grep -q "futuremine/redmica:3\."
 }
+
+# RDC-REQ-F1311: --list は公式 redmine の 7.0.0 以降を表示せず futuremine/redmine を表示する
+@test "[RDC-REQ-F1311] init --list: 公式 redmine:7.0.0 を表示せず futuremine/redmine:7.0.0 を表示する" {
+  export RDC_ALLOW_MOCK=1
+  run rdw init --list
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "futuremine/redmine:7\.0\.0"
+  echo "$output" | grep -qv "^  redmine:7\.0\.0$"
+}
+
+# RDC-REQ-F1311: --list は futuremine/redmine の 7.0.0 未満タグを表示しない
+@test "[RDC-REQ-F1311] init --list: futuremine/redmine:6.1.3（7.0.0未満）を表示しない" {
+  export RDC_ALLOW_MOCK=1
+  run rdw init --list
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qv "futuremine/redmine:6\.1\.3"
+}
+
+# RDC-REQ-F1311: --list-all は閾値で絞り込まず両リポジトリの全タグを表示する
+@test "[RDC-REQ-F1311] init --list-all: 公式 redmine:7.0.0 と futuremine/redmine:6.1.3 の両方を表示する" {
+  export RDC_ALLOW_MOCK=1
+  run rdw init --list-all
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "redmine:7\.0\.0"
+  echo "$output" | grep -q "futuremine/redmine:6\.1\.3"
+}
