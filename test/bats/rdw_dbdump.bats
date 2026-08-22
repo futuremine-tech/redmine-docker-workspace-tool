@@ -79,6 +79,21 @@ teardown() {
   echo "$output" | grep -Eqi "db|running|起動|container"
 }
 
+# ---- Docker デーモン未疎通時の挙動 (RDC-REQ-F0001) ----
+
+# RDC-REQ-F0001: Docker デーモンに疎通できない場合は即エラー終了し dump を作成しない
+@test "[RDC-REQ-F0001] dbdump: Docker デーモンに疎通できない場合は即エラー終了する" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" \
+    "generate_status=done" "import_status=done" "migrate_status=done" "check_status=done"
+  cd "$WS"
+  RDC_MOCK_DOCKER_DAEMON_REACHABLE=false run rdw dbdump
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "接続できません"
+  ! ls "$WS/dbdump/"*.dump 2>/dev/null | grep -q "."
+}
+
 # ---- パイプライン状態を変更しない ----
 
 # RDC-REQ-F0204: dbdump はパイプライン外のユーティリティであり dbdump_status を状態ファイルに書き込まない

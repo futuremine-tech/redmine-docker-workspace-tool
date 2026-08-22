@@ -68,6 +68,10 @@ clean_service_ensure_compose_down() {
 
   local compose_file="$workspace_path/docker-compose.yml"
   if [[ -f "$compose_file" ]]; then
+    if ! status_service_check_docker_daemon_reachable; then
+      clean_service_confirm_docker_unreachable || return 1
+      return 0
+    fi
     local running
     running=$(cd "$workspace_path" && docker compose ps --quiet 2>/dev/null | head -1 || true)
     if [[ -n "$running" ]]; then
@@ -76,5 +80,26 @@ clean_service_ensure_compose_down() {
     fi
   fi
 
+  return 0
+}
+
+# clean_service_confirm_docker_unreachable()
+# Docker デーモンに疎通できず Compose 起動状態を確認できない場合の続行確認 (RDC-REQ-F0012)
+# --force指定時は確認省略、非対話環境では失敗、対話環境では [y/N] プロンプトを表示する
+# returns: 0 to proceed, 1 to abort
+clean_service_confirm_docker_unreachable() {
+  if [[ "${RDC_FORCE:-}" == "true" ]]; then return 0; fi
+  if [[ ! -t 0 ]]; then
+    echo "ERROR: Docker デーモンに接続できません。Compose が起動中か確認できません。" >&2
+    echo "  非対話環境では --force での再実行が必要です。" >&2
+    return 1
+  fi
+  echo "WARNING: Docker デーモンに接続できません。Compose が起動中か確認できません。" >&2
+  read -p "確認できないまま処理を続行しますか？ [y/N] " -n 1 -r -e
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    logger_info "clean cancelled (Docker unreachable, user declined to proceed)."
+    return 1
+  fi
   return 0
 }

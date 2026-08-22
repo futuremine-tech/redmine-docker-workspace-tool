@@ -50,6 +50,11 @@ migrate_service_run() {
     esac
   done
 
+  status_service_check_docker_daemon_reachable || {
+    echo "ERROR: Docker デーモンに接続できません。Docker を起動してから再実行してください。" >&2
+    return 1
+  }
+
   # Load state
   if ! state_store_load "$workspace"; then
     logger_error "Workspace not initialized. Run 'init' first."

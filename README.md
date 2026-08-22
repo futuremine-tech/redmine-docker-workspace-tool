@@ -24,7 +24,7 @@ The resulting environment is started and stopped with standard `docker compose` 
 | Requirement | Details |
 |-------------|---------|
 | OS | Linux (bash 4.0 or later) |
-| Docker | Docker Engine + `docker compose` plugin |
+| Docker | Docker Engine + `docker compose` plugin, running (most subcommands fail immediately if the daemon is unreachable). Both rootful and rootless Docker are supported (setting up rootless Docker itself is the user's responsibility and is out of scope for this tool) |
 | Additional (passenger mode only) | Redmine running on Apache + Passenger (mod_passenger). Standalone Passenger (`passenger start`) is not supported |
 
 ## Installation

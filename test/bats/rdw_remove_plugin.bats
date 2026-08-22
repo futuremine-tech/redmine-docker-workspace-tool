@@ -62,6 +62,28 @@ teardown() {
   echo "$output" | grep -qi "docker compose down"
 }
 
+# ---- Docker デーモン未疎通時の挙動 (RDC-REQ-F0012) ----
+
+# RDC-REQ-F0012: Docker デーモンに疎通できない場合は起動中か確認できない旨を警告し失敗する
+@test "[RDC-REQ-F0012] remove-plugin: Docker デーモンに疎通できない場合は起動中か確認できない旨を警告し失敗する" {
+  # 疎通確認は compose ファイル存在後にチェックされるためダミーを置く
+  echo "services: {}" > "$WS/docker-compose.yml"
+  cd "$WS"
+  RDC_MOCK_DOCKER_DAEMON_REACHABLE=false run rdw remove-plugin my_plugin < /dev/null
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "接続できません"
+  [ -d "$WS/plugins/my_plugin" ]
+}
+
+# RDC-REQ-F0012: Docker デーモンに疎通できない場合、--force指定時は確認なしで続行する
+@test "[RDC-REQ-F0012] remove-plugin: Docker デーモンに疎通できない場合、--force指定時は確認なしで続行する" {
+  echo "services: {}" > "$WS/docker-compose.yml"
+  cd "$WS"
+  RDC_MOCK_DOCKER_DAEMON_REACHABLE=false run rdw remove-plugin my_plugin --force
+  [ "$status" -eq 0 ]
+  [ ! -d "$WS/plugins/my_plugin" ]
+}
+
 # ---- 非対話環境での --force なし拒否 ----
 
 # RDC-REQ-F1108 / RDC-REQ-F0935: 非対話環境で --force なしは失敗終了し --force を案内する

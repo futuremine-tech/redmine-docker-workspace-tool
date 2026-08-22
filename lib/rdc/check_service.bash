@@ -250,19 +250,19 @@ check_service_write_manifest() {
   mkdir -p "$manifest_dir"
 
   if [[ "$check_result" == "passed" ]]; then
-    local image_digest
-    image_digest=$(grep "^target_image_tag=" "$workspace_path/.rdc_state" 2>/dev/null | cut -d= -f2- || true)
-    if [[ -z "$image_digest" ]]; then
-      image_digest=$(grep "^image_ref=" "$workspace_path/.rdc_state" 2>/dev/null | cut -d= -f2- || true)
-    fi
-    if [[ -z "$image_digest" ]]; then
-      image_digest="unknown"
+    # RDC-REQ-F0407是正: base_image_digest は generate 時に .rdc_state へ保存された実際の
+    # Docker image digest をそのまま転記するだけであり、ここで再計算・再取得はしない
+    # （target_image_tag/image_ref を代用しない）。
+    local base_image_digest
+    base_image_digest=$(grep "^base_image_digest=" "$workspace_path/.rdc_state" 2>/dev/null | cut -d= -f2- || true)
+    if [[ -z "$base_image_digest" ]]; then
+      base_image_digest="unknown"
     fi
     local plugins=""
     if [[ -d "$workspace_path/plugins" ]]; then
       plugins=$(ls "$workspace_path/plugins" 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)
     fi
-    manifest_builder_build_success "$workspace_path" "$image_digest" "$plugins" > "$manifest_dir/manifest.json"
+    manifest_builder_build_success "$workspace_path" "$base_image_digest" "$plugins" > "$manifest_dir/manifest.json"
   else
     manifest_builder_build_failure "$workspace_path" "HTTP check failed" > "$manifest_dir/manifest.json"
   fi

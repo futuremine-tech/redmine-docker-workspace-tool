@@ -58,7 +58,8 @@ teardown() {
   rdw_init_state "$WS" \
     "workspace_initialized=true" "mode=new" "product=" \
     "image_source=explicit" "image_ref=futuremine/redmica:4.1.1" \
-    "target_image_tag=" "init_status=done" "dbdump_status=pending" \
+    "target_image_tag=" "base_image_digest=sha256:explicitdigest777" \
+    "init_status=done" "dbdump_status=pending" \
     "generate_status=done" "import_status=done" "migrate_status=done" \
     "check_status=pending"
   export RDC_MOCK_HTTP_RESPONSE="$(cat test/fixtures/html/redmine_powered.html)"
@@ -67,7 +68,39 @@ teardown() {
   [ "$status" -eq 0 ]
   [ -f "$WS/verification/manifest.json" ]
   grep -q '"status": "passed"' "$WS/verification/manifest.json"
-  grep -q '"image_digest": "futuremine/redmica:4.1.1"' "$WS/verification/manifest.json"
+  grep -q '"base_image_digest": "sha256:explicitdigest777"' "$WS/verification/manifest.json"
+}
+
+# RDC-REQ-F0407(是正): manifest の base_image_digest は .rdc_state の base_image_digest を転記するだけで、
+# target_image_tag を代用しない
+@test "[RDC-REQ-F0407] check: manifest の base_image_digest は .rdc_state の base_image_digest 由来である（target_image_tag を代用しない）" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=6.1.2" "base_image_digest=sha256:realbasedigest123" \
+    "init_status=done" "dbdump_status=done" "generate_status=done" \
+    "import_status=done" "migrate_status=done" "check_status=pending"
+  export RDC_MOCK_HTTP_RESPONSE="$(cat test/fixtures/html/redmine_powered.html)"
+  cd "$WS"
+  run rdw check
+  [ "$status" -eq 0 ]
+  grep -q '"base_image_digest": "sha256:realbasedigest123"' "$WS/verification/manifest.json"
+  # 旧実装のバグ（target_image_tag を digest として流用）が再発していないことの確認
+  ! grep -q '"base_image_digest": "6.1.2"' "$WS/verification/manifest.json"
+}
+
+# RDC-REQ-F0407(是正): .rdc_state に base_image_digest が無い場合（本機能実装前に generate 済みのワークスペース）は unknown とし、
+# target_image_tag や image_ref へフォールバックしない
+@test "[RDC-REQ-F0407] check: base_image_digest が .rdc_state に無い場合は unknown とする（target_image_tag/image_ref へフォールバックしない）" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" "dbdump_status=done" \
+    "generate_status=done" "import_status=done" "migrate_status=done" \
+    "check_status=pending"
+  export RDC_MOCK_HTTP_RESPONSE="$(cat test/fixtures/html/redmine_powered.html)"
+  cd "$WS"
+  run rdw check
+  [ "$status" -eq 0 ]
+  grep -q '"base_image_digest": "unknown"' "$WS/verification/manifest.json"
 }
 
 # RDC-REQ-F0912C: 失敗時 manifest が成功結果と混同しない

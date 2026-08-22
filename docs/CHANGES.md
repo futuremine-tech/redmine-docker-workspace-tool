@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.4] - 2026-08-22
+
+### Added
+
+- New `info` subcommand: outputs a read-only, machine-readable snapshot of workspace state (product, image, bind address, pipeline step status, verification summary, container runtime state) as text or JSON (`--json`), for external tooling.
+- `generate` now detects the actual Redmine/RedMica version from inside the pulled base image and reports it via `info`, so a moving tag like `latest` still shows the real version.
+- Rootless Docker support: workspace files use group ID 0 when a rootless Docker daemon is detected.
+- Docker-unreachable handling is now consistent across subcommands: `info` and other Docker-independent commands still work when Docker is unreachable.
+
+### Fixed
+
+- The verification manifest's digest field was actually a copy of the target image tag, not a real Docker image digest. It's now the actual base image digest, renamed to `base_image_digest`.
+
 ## [0.9.3] - 2026-08-12
 
 ### Added

@@ -48,6 +48,11 @@ export_gemfile_lock_service_run() {
     return 1
   fi
 
+  status_service_check_docker_daemon_reachable || {
+    echo "ERROR: Docker デーモンに接続できません。Docker を起動してから再実行してください。" >&2
+    return 1
+  }
+
   local dest="$workspace/Gemfile.lock"
 
   # 既存ファイルチェック (F1303)

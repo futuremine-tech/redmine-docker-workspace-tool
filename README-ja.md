@@ -24,7 +24,7 @@ Redmine/RedMica の Docker ワークスペースを構築・管理する CLI ツ
 | 要件 | 詳細 |
 |------|------|
 | OS | Linux (bash 4.0 以上) |
-| Docker | Docker Engine + `docker compose` プラグイン |
+| Docker | Docker Engine + `docker compose` プラグイン。起動していること（多くのサブコマンドは疎通できない場合即座にエラー終了する）。rootful・rootless いずれの実行環境にも対応（rootless Docker 自体の導入・設定は利用者側の前提とし、本ツールの対象範囲には含まない） |
 | passenger モード使用時の追加条件 | Apache + Passenger（mod_passenger）で動作中の Redmine 環境。スタンドアロン Passenger（`passenger start`）は非対応 |
 
 ## インストール

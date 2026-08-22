@@ -13,6 +13,8 @@ redmine-docker-workspace [--force] [--verbose] <subcommand> [...]
 | `-V`, `--version` | バージョン情報を表示 |
 | `-h`, `--help` | ヘルプを表示 |
 
+大半のサブコマンド（`dbdump`・`prepare-db`・`migrate`・`export-gemfile-lock`・`status`）はDockerデーモンが起動していることを前提とし、疎通できない場合は即座にエラー終了します（`init`・`check`・`add-plugin`はDockerを使わないため対象外）。`clean`・`remove-plugin`は削除処理自体はDocker非依存ですが、Redmineが起動中でないかを確認できないため、詳細は各コマンドの節を参照してください。`info`もDockerを前提とせず、コンテナ稼働状態の取得のみベストエフォートで試み、疎通不可時は「不明」として扱います（詳細は該当節を参照）。
+
 ---
 
 ## `init` — ワークスペース初期化
@@ -75,6 +77,8 @@ Dockerfile、docker-compose.yml、.env などを生成します。
 `--log-stdout` なし（デフォルト）では、生成される docker-compose.yml に `RAILS_LOG_TO_STDOUT: ""` が設定され、公式イメージのデフォルト（STDOUT 出力）を上書きしてファイルログを有効にします。Redmine のログはワークスペース配下の `log/production.log` に出力されます。`--log-stdout` を指定すると `RAILS_LOG_TO_STDOUT: "true"` に切り替わります。
 
 **テーマのアセットプリコンパイル（Redmine 6.x 以降）**: Redmine 6.x 以降ではテーマ CSS がアセットパイプライン経由で配信されるため、`assets:precompile` が必要です。`generate` が生成する Dockerfile は、テーマパスが `/usr/src/redmine/public/themes` 配下でない場合（= 6.x 系）に `docker compose build` 時に自動で `assets:precompile` を実行します。`SECRET_KEY_BASE` は `.env` の値を Docker build secret 経由で参照し、イメージレイヤーには残りません。`workspace/themes/` にテーマを配置後、`docker compose build && docker compose up -d` を実行してください。Redmine 5.x 系（テーマが `public/themes/` 配下）では `assets:precompile` は実行されません。
+
+**バージョン・ベースイメージの検出**: `generate` は、pullしたベースイメージ内部から実際のRedmine/RedMicaバージョンを検出し、ベースイメージのdigestとともに`.rdc_state`へ記録します。これは目標イメージタグが`latest`のような可変タグの場合に重要で、[`info`](#info--ワークスペース情報表示)は指定したタグ文字列そのものではなく、実際にpullされたバージョンを報告します。ベースイメージのdigestは`generate`実行時点のスナップショットであり、その後`docker compose build`（プラグイン・gem等を組み込む）を実行しても更新されません。したがってこの値は「ワークスペースがどのベースイメージから作られたか」を識別するものであり、ビルド後の実体そのものを指すものではありません（ローカルbuildで生成されるイメージのdigestは、プラグイン構成が同一でもbuildのたびに変わり再現性がないため追跡対象にしていません）。
 
 ---
 
@@ -155,6 +159,24 @@ Next action: All steps complete. Run 'docker compose up -d' to start Redmine.
 
 `generate --deployment` で構築した場合、generate 行に `[deployment build]` が付きます。プラグインを追加・削除した後にイメージの再ビルドが必要な場合、または Redmine 6.x 系でテーマを追加・更新した後にイメージの再ビルドが必要な場合は、`docker compose build` の実行を案内します。
 
+使用中の Docker が rootful（`docker` グループ所属等による、実質 root 権限での実行）で動作している場合、`status` はセキュリティ上のリスクがある旨の警告を表示します（[rootless Docker](https://docs.docker.com/engine/security/rootless/) への切り替えを検討してください）。
+
+---
+
+## `info` — ワークスペース情報表示
+
+```
+redmine-docker-workspace info [--json]
+```
+
+| オプション | 説明 |
+|-----------|------|
+| `--json` | 同じ内容をJSON形式で標準出力へ出力 |
+
+外部ツール（複数ワークスペースを管理するレジストリ等）向けの読み取り専用スナップショットです。人間へパイプライン進捗を案内する`status`とは異なり、対象製品種別・目標イメージタグ・実際に検出されたRedmine/RedMicaバージョン（`redmine_version`。[バージョン・ベースイメージの検出](#generate--docker-設定生成)参照。未検出（本機能実装前に`generate`済みのワークスペース等）の場合は目標イメージタグへフォールバック）・使用イメージ名・bindアドレス・`relative_url_root`・ワークスペースパス・各ステップ完了状況・検証要約（`check`が生成したmanifestより。`base_image_digest`を含む）・コンテナ稼働状態を出力します。他の大半のサブコマンドと異なり、`info`はDockerデーモンを前提としません。稼働状態の取得のみベストエフォートで試み、疎通できない場合は「不明」として扱ったうえで、他の情報は通常通り出力し正常終了します。
+
+ワークスペースが未初期化（またはクリーン済み）の場合は失敗します。`--json`指定時は、エラーもプレーンテキストではなく標準出力へのJSON（`{"error": "workspace_not_initialized", ...}`）として返すため、成功時・失敗時とも同じ方法でパースできます。
+
 ---
 
 ## `add-plugin` — プラグイン追加
@@ -179,6 +201,8 @@ redmine-docker-workspace remove-plugin <plugin_name> --force
 ```
 
 逆マイグレーション（`redmine:plugin:migrate VERSION=0`）を実行してから、プラグインディレクトリを削除します。`--force` は必須です。
+
+Dockerデーモンに疎通できない場合、`remove-plugin` はRedmineが起動中かどうかを確認できません。その旨を警告したうえで続行の確認を求めます（`--force` でプロンプトを省略）。
 
 ---
 
@@ -219,3 +243,5 @@ redmine-docker-workspace clean
 ```
 
 生成ファイルを削除し、ワークスペースの状態をリセットします。再構築は `generate` から始めてください。
+
+Dockerデーモンに疎通できない場合、`clean` はComposeが起動中かどうかを確認できません。その旨を警告したうえで続行の確認を求めます（`--force` でプロンプトを省略）。

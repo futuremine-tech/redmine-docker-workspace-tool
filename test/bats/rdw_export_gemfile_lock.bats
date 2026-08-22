@@ -43,6 +43,15 @@ teardown() {
   unset RDC_MOCK_NO_IMAGE
 }
 
+# RDC-REQ-F0001: Docker デーモンに疎通できない場合は即エラー終了する
+@test "[RDC-REQ-F0001] export-gemfile-lock: Docker デーモンに疎通できない場合は即エラー終了する" {
+  cd "$WS"
+  RDC_MOCK_DOCKER_DAEMON_REACHABLE=false run rdw export-gemfile-lock
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "接続できません"
+  [ ! -f "$WS/Gemfile.lock" ]
+}
+
 # RDC-REQ-F0962: 既存 Gemfile.lock に --force なしで上書きを拒否する
 @test "[RDC-REQ-F0962] export-gemfile-lock: 既存 Gemfile.lock に --force なしで上書きを拒否する" {
   echo "existing content" > "$WS/Gemfile.lock"

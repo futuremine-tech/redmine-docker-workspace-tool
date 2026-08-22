@@ -67,7 +67,9 @@ remove_plugin_service_run() {
   # Redmine 実行中ガード
   local compose_running_rc=0
   status_service_check_compose_running "$workspace" 2>/dev/null || compose_running_rc=$?
-  if [[ "$compose_running_rc" -eq 0 ]]; then
+  if [[ "$compose_running_rc" -eq 2 ]]; then
+    remove_plugin_service_confirm_docker_unreachable "$force" || return 1
+  elif [[ "$compose_running_rc" -eq 0 ]]; then
     echo "ERROR: Redmine is running. Stop it first:" >&2
     echo "  docker compose down (in $workspace)" >&2
     return 1
@@ -100,6 +102,28 @@ remove_plugin_service_run() {
 
   state_store_load "$workspace"
   status_service_display_after_subcommand "$workspace"
+  return 0
+}
+
+# remove_plugin_service_confirm_docker_unreachable()
+# Docker デーモンに疎通できず Redmine 起動中か確認できない場合の続行確認 (RDC-REQ-F0012)
+# args: force (true/false としてすでに解決済みの --force 指定有無)
+# returns: 0 to proceed, 1 to abort
+remove_plugin_service_confirm_docker_unreachable() {
+  local force="${1:-false}"
+  if [[ "$force" == "true" ]]; then return 0; fi
+  if [[ ! -t 0 ]]; then
+    echo "ERROR: Docker デーモンに接続できません。Redmineが起動中か確認できません。" >&2
+    echo "  非対話環境では --force での再実行が必要です。" >&2
+    return 1
+  fi
+  echo "WARNING: Docker デーモンに接続できません。Redmineが起動中か確認できません。" >&2
+  read -p "確認できないまま処理を続行しますか？ [y/N] " -n 1 -r -e
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    logger_info "remove-plugin cancelled (Docker unreachable, user declined to proceed)."
+    return 1
+  fi
   return 0
 }
 

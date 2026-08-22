@@ -312,35 +312,53 @@ teardown() {
   echo "$output" | grep -qi "prepare-db"
 }
 
-# ---- Docker デーモン未起動時の挙動 ----
+# ---- Docker デーモン未起動時の挙動 (RDC-REQ-F0001) ----
+# 旧仕様（unknown表示 + exit 0）はRDC-REQ-F0001により置き換えられた。
+# 「疎通不可時はrootful警告を表示しない」旧テスト（F1010）も、statusが状態表示に到達する前に
+# 即エラー終了するようになったため本テストに統合された。
 
-# Docker デーモンに接続できない場合 image/compose の状態を "unknown" として表示する
-@test "[RDC-DESIGN] status: Docker デーモン未起動時は image/compose 状態を unknown として表示する" {
+# RDC-REQ-F0001: Docker デーモンに疎通できない場合は状態表示を行わず即エラー終了する
+@test "[RDC-REQ-F0001] status: Docker デーモンに疎通できない場合は即エラー終了する" {
   rdw_init_state "$WS" \
     "workspace_initialized=true" "mode=passenger" "product=redmine" \
     "target_image_tag=6.1.2" "init_status=done" \
     "generate_status=done" "import_status=pending" "migrate_status=pending" "check_status=pending"
-  # reachability gate は compose ファイル存在後にチェックされるためダミーを置く
-  echo "services: {}" > "$WS/docker-compose.yml"
   cd "$WS"
   RDC_MOCK_DOCKER_DAEMON_REACHABLE=false run rdw status
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -qi "unknown"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "接続できません"
+  ! echo "$output" | grep -q "=== Workspace Status ==="
 }
 
-# Docker デーモンに接続できない場合、次アクション案内に Docker 起動を促すメッセージが出る
-@test "[RDC-DESIGN] status: Docker デーモン未起動時は次アクション案内に Docker 起動促進メッセージが出る" {
+# ---- rootful Docker検出時のセキュリティ警告 (RDC-REQ-F1010) ----
+
+# RDC-REQ-F1010: rootful Docker検出時は status にセキュリティ上のリスクがある旨の警告が出る
+@test "[RDC-REQ-F1010] status: rootful Docker検出時はセキュリティ警告が表示される" {
   rdw_init_state "$WS" \
     "workspace_initialized=true" "mode=passenger" "product=redmine" \
     "target_image_tag=6.1.2" "init_status=done" \
-    "generate_status=done" "import_status=done" "migrate_status=done" "check_status=pending"
-  # reachability gate は compose ファイル存在後にチェックされるためダミーを置く
-  echo "services: {}" > "$WS/docker-compose.yml"
+    "generate_status=pending" "import_status=pending" "migrate_status=pending" "check_status=pending"
   cd "$WS"
-  RDC_MOCK_DOCKER_DAEMON_REACHABLE=false run rdw status
+  RDC_MOCK_DOCKER_DAEMON_REACHABLE=true RDC_MOCK_DOCKER_ROOTLESS=false run rdw status
   [ "$status" -eq 0 ]
-  echo "$output" | grep -q "Docker"
+  echo "$output" | grep -qi "rootful"
 }
+
+# RDC-REQ-F1010: rootless Docker検出時はセキュリティ警告が表示されない
+@test "[RDC-REQ-F1010] status: rootless Docker検出時はセキュリティ警告が表示されない" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" \
+    "generate_status=pending" "import_status=pending" "migrate_status=pending" "check_status=pending"
+  cd "$WS"
+  RDC_MOCK_DOCKER_DAEMON_REACHABLE=true RDC_MOCK_DOCKER_ROOTLESS=true run rdw status
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qvi "rootful"
+}
+
+# 旧テスト「Dockerデーモン未起動時はrootful警告を表示しない（判定不能のため）」はRDC-REQ-F0001により
+# 陳腐化した（statusはこのロジックへ到達する前に即エラー終了するため）。上記の
+# [RDC-REQ-F0001] status: Docker デーモンに疎通できない場合は即エラー終了する に統合済み。
 
 # ---- プラグイン一覧表示 ----
 

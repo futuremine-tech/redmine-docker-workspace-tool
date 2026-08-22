@@ -49,6 +49,17 @@ teardown() {
   echo "$output" | grep -qi "docker compose down"
 }
 
+# ---- Docker デーモン未疎通時の挙動 (RDC-REQ-F0001) ----
+
+# RDC-REQ-F0001: Docker デーモンに疎通できない場合は即エラー終了する
+@test "[RDC-REQ-F0001] migrate: Docker デーモンに疎通できない場合は即エラー終了する" {
+  cd "$WS"
+  RDC_MOCK_DOCKER_DAEMON_REACHABLE=false run rdw migrate
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "接続できません"
+  grep -q "^migrate_status=pending$" "$WS/.rdc_state"
+}
+
 # ---- 前提不足ガード ----
 
 # RDC-REQ-F0384B: 前提不足（prepare-db 未完了 / build stale）時は migrate を拒否し不足手順を案内する

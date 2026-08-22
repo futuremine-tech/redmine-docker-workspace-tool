@@ -73,6 +73,25 @@ teardown() {
   unset RDC_MOCK_COMPOSE_RUNNING
 }
 
+# ---- Docker デーモン未疎通時の挙動 (RDC-REQ-F0012) ----
+
+# RDC-REQ-F0012: Docker デーモンに疎通できない場合は起動中か確認できない旨を警告し失敗する
+@test "[RDC-REQ-F0012] clean: Docker デーモンに疎通できない場合は起動中か確認できない旨を警告し失敗する" {
+  cd "$WS"
+  RDC_MOCK_DOCKER_DAEMON_REACHABLE=false run rdw clean < /dev/null
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "接続できません"
+  [ -f "$WS/Dockerfile" ]
+}
+
+# RDC-REQ-F0012: Docker デーモンに疎通できない場合、--force指定時は確認なしで続行する
+@test "[RDC-REQ-F0012] clean: Docker デーモンに疎通できない場合、--force指定時は確認なしで続行する" {
+  cd "$WS"
+  RDC_MOCK_DOCKER_DAEMON_REACHABLE=false run rdw clean --force
+  [ "$status" -eq 0 ]
+  [ ! -f "$WS/Dockerfile" ]
+}
+
 # RDC-REQ-F0107B/RDC-REQ-F0501: clean 実行時に activate-workspace-tool.sh が削除される
 @test "[RDC-REQ-F0107B][RDC-REQ-F0501] clean: activate-workspace-tool.sh が削除される" {
   echo "export PATH=\"/dummy/bin:\$PATH\"" > "$WS/activate-workspace-tool.sh"

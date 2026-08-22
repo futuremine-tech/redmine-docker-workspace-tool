@@ -43,8 +43,14 @@ status_service_run() {
     return 1
   fi
 
+  status_service_check_docker_daemon_reachable || {
+    echo "ERROR: Docker デーモンに接続できません。Docker を起動してから再実行してください。" >&2
+    return 1
+  }
+
   state_store_load "$workspace"
   status_service_load_and_display_steps "$workspace"
+  status_service_display_rootless_warning
   echo ""
   status_service_list_plugins "$workspace"
   echo ""
@@ -63,6 +69,7 @@ status_service_display_after_subcommand() {
   state_store_load "$workspace"
   echo ""
   status_service_load_and_display_steps "$workspace"
+  status_service_display_rootless_warning
   echo ""
   status_service_list_plugins "$workspace"
   echo ""
@@ -83,6 +90,32 @@ status_service_check_docker_daemon_reachable() {
   if [[ "${RDC_ALLOW_MOCK:-}" == "1" ]]; then return 0; fi
   command -v docker > /dev/null 2>&1 || return 1
   docker info > /dev/null 2>&1
+}
+
+# docker_is_rootless()
+# 現在使用している Docker デーモンが rootless モードで動作しているかを判定する
+# (RDC-REQ-F1010)。rootless Docker では `docker info` の SecurityOptions に
+# "name=rootless" が含まれる（docs.docker.com/engine/security/rootless/）。
+# RDC_ALLOW_MOCK=1 のみ指定時は、rootful を前提とした既存テストとの後方互換のため
+# rootful (1) を返す。
+# returns: 0 if rootless, 1 if rootful (or undetermined)
+docker_is_rootless() {
+  if [[ "${RDC_MOCK_DOCKER_ROOTLESS:-}" == "true" ]]; then return 0; fi
+  if [[ "${RDC_MOCK_DOCKER_ROOTLESS:-}" == "false" ]]; then return 1; fi
+  if [[ "${RDC_ALLOW_MOCK:-}" == "1" ]]; then return 1; fi
+  docker info --format '{{json .SecurityOptions}}' 2> /dev/null | grep -q '"name=rootless"'
+}
+
+# status_service_display_rootless_warning()
+# rootful Docker使用時に、docker グループ所属等によるセキュリティ上のリスクがある旨を
+# 警告する (RDC-REQ-F1010)。Docker デーモンに疎通できない場合は rootful/rootless の
+# 判定ができないため、何も表示しない。
+# args: (none)
+status_service_display_rootless_warning() {
+  status_service_check_docker_daemon_reachable || return 0
+  docker_is_rootless && return 0
+  echo "Warning: Docker is running in rootful mode. Members of the 'docker' group effectively have root-equivalent access to this host."
+  echo "Consider switching to rootless Docker: https://docs.docker.com/engine/security/rootless/"
 }
 
 # status_service_load_and_display_steps()
@@ -348,6 +381,33 @@ status_service_get_compose_running_names() {
       --format '{{.Names}}' 2>/dev/null | paste -sd ', ' -
 }
 
+# status_service_get_target_image_name()
+# docker-compose.yml の redmine サービスから image 名を抽出する（Docker非依存）。
+# 抽出できない場合は workspace basename からのフォールバック名を返す。
+# args: workspace_path
+# stdout: image name
+# returns: 0 always
+status_service_get_target_image_name() {
+  local workspace_path="${1:?workspace_path required}"
+  local compose_file="$workspace_path/docker-compose.yml"
+
+  local image_name
+  image_name=$(awk '
+    /^  redmine:/ { in_svc=1; next }
+    /^  [a-zA-Z_]/ { in_svc=0 }
+    in_svc && /image:/ {
+      sub(/.*image:[[:space:]]*/, "")
+      gsub(/"/, "")
+      print; exit
+    }
+  ' "$compose_file" 2>/dev/null || true)
+
+  if [[ -z "$image_name" ]]; then
+    image_name="$(basename "$workspace_path")-redmine"
+  fi
+  echo "$image_name"
+}
+
 # status_service_check_target_image_exists()
 # compose 定義から target image 名を取得し、generate 完了後に build されたかを確認する
 # args: workspace_path
@@ -388,22 +448,8 @@ status_service_check_target_image_exists() {
 
   if ! status_service_check_docker_daemon_reachable; then return 2; fi
 
-  # Extract image name from the redmine service block specifically
   local image_name
-  image_name=$(awk '
-    /^  redmine:/ { in_svc=1; next }
-    /^  [a-zA-Z_]/ { in_svc=0 }
-    in_svc && /image:/ {
-      sub(/.*image:[[:space:]]*/, "")
-      gsub(/"/, "")
-      print; exit
-    }
-  ' "$compose_file" 2>/dev/null || true)
-
-  if [[ -z "$image_name" ]]; then
-    # Fallback: build: service without image:, derive name from workspace dir
-    image_name="$(basename "$workspace_path")-redmine"
-  fi
+  image_name=$(status_service_get_target_image_name "$workspace_path")
 
   if ! docker image inspect "$image_name" > /dev/null 2>&1; then
     return 1
@@ -535,16 +581,7 @@ status_service_check_build_needed_by_themes() {
   [[ ! -f "$compose_file" ]] && return 1
 
   local image_name
-  image_name=$(awk '
-    /^  redmine:/ { in_svc=1; next }
-    /^  [a-zA-Z_]/ { in_svc=0 }
-    in_svc && /image:/ {
-      sub(/.*image:[[:space:]]*/, "")
-      gsub(/"/, "")
-      print; exit
-    }
-  ' "$compose_file" 2>/dev/null || true)
-  [[ -z "$image_name" ]] && image_name="$(basename "$workspace_path")-redmine"
+  image_name=$(status_service_get_target_image_name "$workspace_path")
 
   if ! docker image inspect "$image_name" > /dev/null 2>&1; then return 1; fi
 
@@ -628,16 +665,7 @@ status_service_check_build_needed_by_plugins() {
   [[ ! -f "$compose_file" ]] && return 1
 
   local image_name
-  image_name=$(awk '
-    /^  redmine:/ { in_svc=1; next }
-    /^  [a-zA-Z_]/ { in_svc=0 }
-    in_svc && /image:/ {
-      sub(/.*image:[[:space:]]*/, "")
-      gsub(/"/, "")
-      print; exit
-    }
-  ' "$compose_file" 2>/dev/null || true)
-  [[ -z "$image_name" ]] && image_name="$(basename "$workspace_path")-redmine"
+  image_name=$(status_service_get_target_image_name "$workspace_path")
 
   if ! docker image inspect "$image_name" > /dev/null 2>&1; then return 1; fi
 

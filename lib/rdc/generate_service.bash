@@ -8,6 +8,7 @@ source "$_RDC_LIB_DIR/state_store.bash"
 source "$_RDC_LIB_DIR/compose_renderer.bash"
 source "$_RDC_LIB_DIR/logger.bash"
 source "$_RDC_LIB_DIR/status_service.bash"
+source "$_RDC_LIB_DIR/version_detector.bash"
 
 # _generate_service_find_free_port()
 # 指定ポートが使用中なら次の空きポートを返す
@@ -280,7 +281,14 @@ generate_service_run() {
     extra_config_mounts_joined=$(IFS=,; echo "${extra_config_mounts[*]}")
   fi
   export RDC_EXTRA_CONFIG_MOUNTS="$extra_config_mounts_joined"
-  
+
+  # rootless Docker では GID 0 がホスト実ユーザーの実プライマリGIDへ自動的にマップされるため、
+  # container_gid に 0 を渡す (RDC-REQ-F1010, develop/docs/15-DESIGN-RDC-rootless-permission-scheme.md)。
+  # rootful の場合は compose_renderer 側の既定値 ($(id -g)) をそのまま使うため、ここでは export しない。
+  if docker_is_rootless; then
+    export RDC_CONTAINER_GID="0"
+  fi
+
   # Detect themes path from image (can be overridden via RDC_THEMES_CONTAINER_PATH for testing)
   local themes_container_path="${RDC_THEMES_CONTAINER_PATH:-}"
   if [[ -z "$themes_container_path" ]]; then
@@ -627,15 +635,17 @@ generate_service_extract_configuration_example() {
     cp "$configuration_path" "$configuration_example_path"
     generate_service_write_database_yml "$config_dir"
     generate_service_write_additional_environment_rb "$config_dir"
+    state_store_save "$workspace_path" "redmine_version" "unknown"
+    state_store_save "$workspace_path" "base_image_digest" "unknown"
     logger_info "Mock: skipping configuration extract from image (RDC_MOCK_SKIP_IMAGE_EXTRACT=1)"
     return 0
   fi
-  
+
   local image_name
   image_name=$(compose_renderer_resolve_image_name "$product" "$image_tag")
   local container_id
   local pull_succeeded=true
-  
+
   # Pull image with spinner; show final status after completion.
   logger_info "Pulling image: ${image_name} ..."
   local pull_log
@@ -649,7 +659,21 @@ generate_service_extract_configuration_example() {
   fi
   cat "$pull_log"
   rm -f "$pull_log"
-  
+
+  # RDC-REQ-F0407是正: base_image_digest はpull直後のベースイメージを指す不変値。
+  # docker compose build 後に作られるローカルイメージ（plugins/gem等を組み込んだ実体）の
+  # digestとは別物であり、build後にこの値を再取得・更新することはない
+  # （develop/docs/18-DESIGN-F1413-redmine-version-and-digest.md 1.1節）。
+  local base_image_digest="unknown"
+  if [[ -n "${RDC_MOCK_BASE_IMAGE_DIGEST:-}" ]]; then
+    base_image_digest="$RDC_MOCK_BASE_IMAGE_DIGEST"
+  elif [[ "${RDC_ALLOW_MOCK:-}" != "1" ]]; then
+    base_image_digest=$(docker inspect \
+      --format='{{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}{{.Id}}{{end}}' \
+      "$image_name" 2>/dev/null || echo "unknown")
+  fi
+  state_store_save "$workspace_path" "base_image_digest" "$base_image_digest"
+
   # Create temporary container and copy configuration.yml.example
   container_id=$(docker create "$image_name" /bin/sh 2>/dev/null) || {
     if [[ "$pull_succeeded" == "false" ]]; then
@@ -686,6 +710,23 @@ generate_service_extract_configuration_example() {
     else
       logger_info "Warning: Could not extract additional_environment.rb.example from $image_name"
     fi
+
+    # RDC-REQ-F1413: イメージ内部から実バージョンを検出する（target_image_tag が latest 等の
+    # 非セマンティックバージョンタグであっても、実際にビルドされているバージョンを取得する）
+    local detected_version="unknown"
+    if [[ -n "${RDC_MOCK_IMAGE_VERSION:-}" ]]; then
+      detected_version="$RDC_MOCK_IMAGE_VERSION"
+    elif [[ "${RDC_ALLOW_MOCK:-}" != "1" ]]; then
+      local version_tmp
+      version_tmp=$(mktemp -d)
+      docker cp "$container_id:/usr/src/redmine/VERSION" "$version_tmp/VERSION" 2>/dev/null || true
+      mkdir -p "$version_tmp/lib/redmine" "$version_tmp/lib/redmica"
+      docker cp "$container_id:/usr/src/redmine/lib/redmine/version.rb" "$version_tmp/lib/redmine/version.rb" 2>/dev/null || true
+      docker cp "$container_id:/usr/src/redmine/lib/redmica/version.rb" "$version_tmp/lib/redmica/version.rb" 2>/dev/null || true
+      detected_version=$(version_detector_detect_from_root "$product" "$version_tmp")
+      rm -rf "$version_tmp"
+    fi
+    state_store_save "$workspace_path" "redmine_version" "$detected_version"
 
     docker rm -f "$container_id" 2>/dev/null || true
   fi

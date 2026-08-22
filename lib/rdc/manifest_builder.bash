@@ -5,11 +5,11 @@
 
 # manifest_builder_build_success()
 # 成功時の manifest JSON 文字列を返す
-# args: workspace_path, image_digest, plugin_inventory (space-separated)
+# args: workspace_path, base_image_digest, plugin_inventory (space-separated)
 # stdout: JSON string
 manifest_builder_build_success() {
   local workspace_path="${1:?workspace_path required}"
-  local image_digest="${2:?image_digest required}"
+  local base_image_digest="${2:?base_image_digest required}"
   local plugin_inventory="${3:-}"
 
   local state_file="$workspace_path/.rdc_state"
@@ -34,7 +34,7 @@ manifest_builder_build_success() {
 {
   "status": "passed",
   "target": "${product}:${tag}",
-  "image_digest": "${image_digest}",
+  "base_image_digest": "${base_image_digest}",
   "migrate": "${migrate_status}",
   "check": "${check_status}",
   "plugins": ${plugins_json},

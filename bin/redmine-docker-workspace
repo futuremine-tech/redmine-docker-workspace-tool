@@ -37,6 +37,7 @@ source "$_RDC_LIB_DIR/migrate_service.bash"
 source "$_RDC_LIB_DIR/check_service.bash"
 source "$_RDC_LIB_DIR/clean_service.bash"
 source "$_RDC_LIB_DIR/status_service.bash"
+source "$_RDC_LIB_DIR/info_service.bash"
 source "$_RDC_LIB_DIR/remove_plugin_service.bash"
 source "$_RDC_LIB_DIR/add_plugin_service.bash"
 source "$_RDC_LIB_DIR/export_gemfile_lock_service.bash"
@@ -66,13 +67,14 @@ rdw_dispatch() {
     check)    check_service_run "$@" ;;
     clean)         clean_service_run "$@" ;;
     status)        status_service_run "$@" ;;
+    info)          info_service_run "$@" ;;
     remove-plugin) remove_plugin_service_run "$@" ;;
     add-plugin)    add_plugin_service_run "$@" ;;
     export-gemfile-lock) export_gemfile_lock_service_run "$@" ;;
     *)
       echo "Unknown subcommand: $command" >&2
       echo "Usage: redmine-docker-workspace <subcommand> [options]" >&2
-      echo "Subcommands: init, dbdump, generate, prepare-db, migrate, check, clean, status, remove-plugin, add-plugin, export-gemfile-lock" >&2
+      echo "Subcommands: init, dbdump, generate, prepare-db, migrate, check, clean, status, info, remove-plugin, add-plugin, export-gemfile-lock" >&2
       return 1
       ;;
   esac
@@ -108,6 +110,7 @@ rdw_main() {
           echo "  check     Verify running Redmine"
           echo "  clean     Remove generated files and reset state"
           echo "  status    Show workspace step status"
+          echo "  info      Show read-only workspace information (--json for machine-readable output)"
           echo "  add-plugin     Add a Redmine plugin to the workspace"
           echo "  remove-plugin  Remove a Redmine plugin from the workspace"
           echo "  export-gemfile-lock  Extract Gemfile.lock from built image"

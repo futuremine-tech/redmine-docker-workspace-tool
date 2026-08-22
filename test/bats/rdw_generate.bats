@@ -365,6 +365,76 @@ EOF
   [ -f "$WS/config/configuration.yml" ]
 }
 
+# ---- redmine_version / base_image_digest の .rdc_state 保存（RDC-REQ-F1413, RDC-REQ-F0407是正） ----
+
+# RDC-REQ-F1413: generate は passenger モードでも redmine_version / base_image_digest を .rdc_state へ保存する
+@test "[RDC-REQ-F1413] generate: passenger モードで redmine_version / base_image_digest を .rdc_state へ保存する" {
+  mkdir -p "$WS/mockbin"
+  cat > "$WS/mockbin/docker" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+cmd="${1:-}"
+shift || true
+case "$cmd" in
+  create) echo "mock-container" ;;
+  cp)
+    target="${@: -1}"
+    mkdir -p "$(dirname "$target")"
+    echo "dummy" > "$target"
+    ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$WS/mockbin/docker"
+  cd "$WS"
+  export PATH="$WS/mockbin:$PATH"
+  export RDC_ALLOW_MOCK=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  export RDC_MOCK_IMAGE_VERSION=7.0.4
+  export RDC_MOCK_BASE_IMAGE_DIGEST=sha256:passengerdigest999
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q "^redmine_version=7.0.4$" "$WS/.rdc_state"
+  grep -q "^base_image_digest=sha256:passengerdigest999$" "$WS/.rdc_state"
+  unset RDC_MOCK_IMAGE_VERSION RDC_MOCK_BASE_IMAGE_DIGEST
+}
+
+# RDC-REQ-F1413: new モードでも同様に redmine_version / base_image_digest を .rdc_state へ保存する（全モード共通）
+@test "[RDC-REQ-F1413] generate: new モードでも redmine_version / base_image_digest を .rdc_state へ保存する（全モード共通）" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "product=redmine" \
+    "target_image_tag=latest" "init_status=done" "dbdump_status=done" \
+    "generate_status=pending"
+  mkdir -p "$WS/mockbin"
+  cat > "$WS/mockbin/docker" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+cmd="${1:-}"
+shift || true
+case "$cmd" in
+  create) echo "mock-container" ;;
+  cp)
+    target="${@: -1}"
+    mkdir -p "$(dirname "$target")"
+    echo "dummy" > "$target"
+    ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$WS/mockbin/docker"
+  cd "$WS"
+  export PATH="$WS/mockbin:$PATH"
+  export RDC_ALLOW_MOCK=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  export RDC_MOCK_IMAGE_VERSION=7.1.0
+  export RDC_MOCK_BASE_IMAGE_DIGEST=sha256:newmodedigest999
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q "^redmine_version=7.1.0$" "$WS/.rdc_state"
+  grep -q "^base_image_digest=sha256:newmodedigest999$" "$WS/.rdc_state"
+  unset RDC_MOCK_IMAGE_VERSION RDC_MOCK_BASE_IMAGE_DIGEST
+}
+
 # RDC-REQ-F0910C: pull 失敗時はローカルイメージへフォールバックし、ローカルにも無ければ generate を失敗させる
 @test "[RDC-REQ-F0910C] generate: pull 失敗かつローカルイメージなしでは失敗する" {
   mkdir -p "$WS/mockbin"
@@ -954,4 +1024,32 @@ ENVEOF
   grep -q '"/redmine"' "$WS/docker-compose.yml"
   grep -q "secret_key_base" "$WS/docker-compose.yml"
   unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
+# ---- RDC-REQ-F1010: rootless Docker検出時の container_gid 切り替え ----
+
+# RDC-REQ-F1010: rootless Docker検出時は compose の user GID が 0 になる
+@test "[RDC-REQ-F1010] generate: rootless Docker検出時は compose の user GID が 0 になる" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_MOCK_DOCKER_ROOTLESS=true
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q 'user: "999:0"' "$WS/docker-compose.yml"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT RDC_MOCK_DOCKER_ROOTLESS
+}
+
+# RDC-REQ-F1010: rootful Docker検出時は compose の user GID が実行ユーザーの実GIDのままになる（回帰確認）
+@test "[RDC-REQ-F1010] generate: rootful Docker検出時は compose の user GID が実行ユーザーの実GIDのままになる（回帰確認）" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_MOCK_DOCKER_ROOTLESS=false
+  local expected_gid
+  expected_gid=$(id -g)
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q "user: \"999:${expected_gid}\"" "$WS/docker-compose.yml"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT RDC_MOCK_DOCKER_ROOTLESS
 }

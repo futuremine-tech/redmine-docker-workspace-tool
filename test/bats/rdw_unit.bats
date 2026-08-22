@@ -11,7 +11,9 @@ setup() {
   source lib/rdc/compose_renderer.bash
   source lib/rdc/manifest_builder.bash
   source lib/rdc/prepare_db_service.bash
+  source lib/rdc/version_detector.bash
   source lib/rdc/generate_service.bash
+  source lib/rdc/status_service.bash
   WS=$(rdw_make_workspace)
 }
 
@@ -294,14 +296,231 @@ EOF
   grep -q -- "run --rm futuremine/redmica:3.2.0" "$log_file"
 }
 
+# ---- VersionDetector#detect_from_root ----
+
+# RDC-REQ-F1413: VERSION ファイルが存在する場合はその内容を優先する（redmine）
+@test "[RDC-REQ-F1413] VersionDetector: VERSION ファイルが存在する場合はその内容を返す（redmine）" {
+  local root
+  root=$(mktemp -d)
+  echo "7.0.1" > "$root/VERSION"
+
+  run version_detector_detect_from_root redmine "$root"
+  [ "$status" -eq 0 ]
+  [ "$output" = "7.0.1" ]
+  rm -rf "$root"
+}
+
+# RDC-REQ-F1413: VERSION ファイルが無い場合は lib/redmine/version.rb から MAJOR.MINOR.TINY を組み立てる
+@test "[RDC-REQ-F1413] VersionDetector: VERSION 無し・lib/redmine/version.rb からバージョンを組み立てる（redmine）" {
+  local root
+  root=$(mktemp -d)
+  mkdir -p "$root/lib/redmine"
+  cat > "$root/lib/redmine/version.rb" <<'EOF'
+module Redmine
+  module VERSION
+    MAJOR = 6
+    MINOR = 1
+    TINY  = 2
+  end
+end
+EOF
+
+  run version_detector_detect_from_root redmine "$root"
+  [ "$status" -eq 0 ]
+  [ "$output" = "6.1.2" ]
+  rm -rf "$root"
+}
+
+# RDC-REQ-F1413: RedMica は VERSION が無い場合 lib/redmica/version.rb を優先する（lib/redmine/version.rb は無視）
+@test "[RDC-REQ-F1413] VersionDetector: VERSION 無し・RedMica は lib/redmica/version.rb を使う" {
+  local root
+  root=$(mktemp -d)
+  mkdir -p "$root/lib/redmica" "$root/lib/redmine"
+  cat > "$root/lib/redmica/version.rb" <<'EOF'
+module RedMica
+  module VERSION
+    MAJOR = 3
+    MINOR = 2
+    TINY  = 4
+  end
+end
+EOF
+  cat > "$root/lib/redmine/version.rb" <<'EOF'
+module Redmine
+  module VERSION
+    MAJOR = 6
+    MINOR = 0
+    TINY  = 6
+  end
+end
+EOF
+
+  run version_detector_detect_from_root redmica "$root"
+  [ "$status" -eq 0 ]
+  [ "$output" = "3.2.4" ]
+  rm -rf "$root"
+}
+
+# RDC-REQ-F1413: 何も見つからない場合は unknown を返す
+@test "[RDC-REQ-F1413] VersionDetector: VERSION も version.rb も無い場合は unknown を返す" {
+  local root
+  root=$(mktemp -d)
+
+  run version_detector_detect_from_root redmine "$root"
+  [ "$status" -eq 0 ]
+  [ "$output" = "unknown" ]
+  rm -rf "$root"
+}
+
+# ---- GenerateService: base_image_digest / redmine_version の .rdc_state 保存 ----
+
+# RDC-REQ-F0407(是正): docker inspect の RepoDigests から base_image_digest を .rdc_state へ保存する
+@test "[RDC-REQ-F0407] GenerateService: pull直後に RepoDigests から base_image_digest を .rdc_state へ保存する" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" "dbdump_status=done" \
+    "generate_status=pending"
+  local fake_dir log_file
+  fake_dir=$(mktemp -d)
+  log_file="$fake_dir/docker.log"
+  cat > "$fake_dir/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "$*" >> "$FAKE_DOCKER_LOG"
+case "$1" in
+  pull) exit 0 ;;
+  inspect) echo "futuremine/redmine@sha256:realdigest000111222" ;;
+  create) echo "mock-container" ;;
+  cp)
+    dest="${*: -1}"
+    mkdir -p "$(dirname "$dest")"
+    echo "dummy" > "$dest"
+    ;;
+  rm) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$fake_dir/docker"
+  export FAKE_DOCKER_LOG="$log_file"
+  export PATH="$fake_dir:$PATH"
+  # RDC_ALLOW_MOCK=1 が設定されていると docker inspect 自体を呼ばず unknown になる
+  # （scripts/run-bats.sh 経由の実行では既定で export されているため、このテストでは明示的に外す）
+  unset RDC_ALLOW_MOCK
+
+  run generate_service_extract_configuration_example "$WS" redmine 6.1.2
+  [ "$status" -eq 0 ]
+  [ "$(rdw_read_state "$WS" base_image_digest)" = "futuremine/redmine@sha256:realdigest000111222" ]
+}
+
+# RDC-REQ-F0407(是正): docker inspect の --format には RepoDigests 優先・.Id フォールバックの
+# 両方が1回の呼び出しに埋め込まれる（フォールバック判定は docker 側の Go template が行うため、
+# bash 側は format 引数の内容と、出力をそのまま保存することだけを検証する）
+@test "[RDC-REQ-F0407] GenerateService: docker inspect の --format に RepoDigests 優先・.Id フォールバックの両方を渡す" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" "dbdump_status=done" \
+    "generate_status=pending"
+  local fake_dir log_file
+  fake_dir=$(mktemp -d)
+  log_file="$fake_dir/docker.log"
+  cat > "$fake_dir/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "$*" >> "$FAKE_DOCKER_LOG"
+case "$1" in
+  pull) exit 0 ;;
+  # RepoDigests が無いケースを模した戻り値（実際の分岐は docker の Go template が行う）
+  inspect) echo "sha256:localimageid333444" ;;
+  create) echo "mock-container" ;;
+  cp)
+    dest="${*: -1}"
+    mkdir -p "$(dirname "$dest")"
+    echo "dummy" > "$dest"
+    ;;
+  rm) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$fake_dir/docker"
+  export FAKE_DOCKER_LOG="$log_file"
+  export PATH="$fake_dir:$PATH"
+  unset RDC_ALLOW_MOCK
+
+  run generate_service_extract_configuration_example "$WS" redmine 6.1.2
+  [ "$status" -eq 0 ]
+  [ "$(rdw_read_state "$WS" base_image_digest)" = "sha256:localimageid333444" ]
+  grep -qF -- "inspect --format={{if .RepoDigests}}{{index .RepoDigests 0}}{{else}}{{.Id}}{{end}}" "$log_file"
+}
+
+# RDC-REQ-F1413: docker cp で取得した VERSION の内容を redmine_version として .rdc_state へ保存する
+@test "[RDC-REQ-F1413] GenerateService: docker cp した VERSION の内容を redmine_version として保存する" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=latest" "init_status=done" "dbdump_status=done" \
+    "generate_status=pending"
+  local fake_dir
+  fake_dir=$(mktemp -d)
+  cat > "$fake_dir/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  pull) exit 0 ;;
+  inspect) echo "sha256:unused" ;;
+  create) echo "mock-container" ;;
+  cp)
+    dest="${*: -1}"
+    case "$dest" in
+      *VERSION)
+        mkdir -p "$(dirname "$dest")"
+        printf '7.0.4' > "$dest"
+        ;;
+      *lib/redmine/version.rb|*lib/redmica/version.rb)
+        exit 1
+        ;;
+      *)
+        # configuration.yml.example / additional_environment.rb.example（本テストの対象外）
+        mkdir -p "$(dirname "$dest")"
+        echo "dummy" > "$dest"
+        ;;
+    esac
+    ;;
+  rm) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$fake_dir/docker"
+  export PATH="$fake_dir:$PATH"
+  unset RDC_ALLOW_MOCK
+
+  run generate_service_extract_configuration_example "$WS" redmine latest
+  [ "$status" -eq 0 ]
+  [ "$(rdw_read_state "$WS" redmine_version)" = "7.0.4" ]
+}
+
+# RDC-REQ-F1413: モックスキップ経路（RDC_MOCK_SKIP_IMAGE_EXTRACT）では unknown を保存する
+@test "[RDC-REQ-F1413] GenerateService: RDC_MOCK_SKIP_IMAGE_EXTRACT 時は redmine_version/base_image_digest ともに unknown" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" "dbdump_status=done" \
+    "generate_status=pending"
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+
+  run generate_service_extract_configuration_example "$WS" redmine 6.1.2
+  [ "$status" -eq 0 ]
+  [ "$(rdw_read_state "$WS" redmine_version)" = "unknown" ]
+  [ "$(rdw_read_state "$WS" base_image_digest)" = "unknown" ]
+  unset RDC_ALLOW_MOCK RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
 # ---- ManifestBuilder#build_success ----
 
 # RDC-REQ-F0912B: 成功 manifest に必要な情報が含まれる
-@test "[RDC-REQ-F0912B] ManifestBuilder: 成功 manifest に image_digest, migrate, check, target 情報が含まれる" {
+@test "[RDC-REQ-F0912B] ManifestBuilder: 成功 manifest に base_image_digest, migrate, check, target 情報が含まれる" {
   rdw_full_state_passenger "$WS"
   run manifest_builder_build_success "$WS" "sha256:abc123" "redmineup_tags@unknown"
   [ "$status" -eq 0 ]
-  echo "$output" | grep -q "image_digest"
+  echo "$output" | grep -q '"base_image_digest": "sha256:abc123"'
   echo "$output" | grep -q "migrate"
   echo "$output" | grep -q "check"
   echo "$output" | grep -q "passed"
@@ -580,4 +799,24 @@ PGEOF
   run compose_renderer_render_compose
   [ "$status" -eq 0 ]
   echo "$output" | grep -qv "secret_key_base"
+}
+
+# ---- docker_is_rootless() ----
+
+# RDC-REQ-F1010: RDC_MOCK_DOCKER_ROOTLESS=true のとき rootless (成功) と判定する
+@test "[RDC-REQ-F1010] docker_is_rootless: RDC_MOCK_DOCKER_ROOTLESS=true のとき成功(rootless)を返す" {
+  RDC_MOCK_DOCKER_ROOTLESS=true run docker_is_rootless
+  [ "$status" -eq 0 ]
+}
+
+# RDC-REQ-F1010: RDC_MOCK_DOCKER_ROOTLESS=false のとき rootful (失敗) と判定する
+@test "[RDC-REQ-F1010] docker_is_rootless: RDC_MOCK_DOCKER_ROOTLESS=false のとき失敗(rootful)を返す" {
+  RDC_MOCK_DOCKER_ROOTLESS=false run docker_is_rootless
+  [ "$status" -eq 1 ]
+}
+
+# RDC-REQ-F1010: モック未指定・RDC_ALLOW_MOCK=1 のときは既存テストとの後方互換のため rootful (失敗) 扱いにする
+@test "[RDC-REQ-F1010] docker_is_rootless: RDC_ALLOW_MOCK=1 かつ個別モック未指定のとき rootful (失敗) 扱いになる" {
+  RDC_ALLOW_MOCK=1 run docker_is_rootless
+  [ "$status" -eq 1 ]
 }

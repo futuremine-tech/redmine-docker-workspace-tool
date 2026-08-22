@@ -8,6 +8,7 @@ source "$_RDC_LIB_DIR/state_store.bash"
 source "$_RDC_LIB_DIR/mode_resolver.bash"
 source "$_RDC_LIB_DIR/logger.bash"
 source "$_RDC_LIB_DIR/status_service.bash"
+source "$_RDC_LIB_DIR/version_detector.bash"
 
 # _init_service_workspace_required_keys: workspace モードで必須の .rdc_state キー
 _INIT_WORKSPACE_REQUIRED_KEYS=("workspace_initialized" "mode" "product" "target_image_tag" "init_status")
@@ -67,18 +68,7 @@ _init_service_detect_product() {
     product="redmica"
   fi
 
-  # Try to detect version from VERSION file or version.rb.
-  # For RedMica, prefer lib/redmica/version.rb over lib/redmine/version.rb
-  # because the latter contains the upstream Redmine base version, not the RedMica version.
-  if [[ -f "$root/VERSION" ]]; then
-    version=$(cat "$root/VERSION" | tr -d '[:space:]')
-  elif [[ "$product" == "redmica" && -f "$root/lib/redmica/version.rb" ]]; then
-    version=$(grep -E "^\s*(MAJOR|MINOR|TINY)\s*=" "$root/lib/redmica/version.rb" 2>/dev/null | \
-      awk '{print $NF}' | tr -d ',' | paste -sd '.' || echo "unknown")
-  elif [[ -f "$root/lib/redmine/version.rb" ]]; then
-    version=$(grep -E "^\s*(MAJOR|MINOR|TINY)\s*=" "$root/lib/redmine/version.rb" 2>/dev/null | \
-      awk '{print $NF}' | tr -d ',' | paste -sd '.' || echo "unknown")
-  fi
+  version=$(version_detector_detect_from_root "$product" "$root")
 
   echo "product=$product"
   echo "version=$version"
