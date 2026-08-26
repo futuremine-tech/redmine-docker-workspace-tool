@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.5] - 2026-08-27
+
+### Fixed
+
+- Fixed the Redmine 6.x `assets:precompile` build step not bind mounting `plugins`, so plugin assets (CSS, images, etc.) were silently excluded from the compiled output. Plugins such as View Customize would then fail at runtime with `ActionController::RoutingError (No route matches [GET] "/assets/plugin_assets/<plugin>/...")`. The generated Dockerfile now bind mounts `plugins` into this step, matching the `bundle install` step.
+
 ## [0.9.4] - 2026-08-22
 
 ### Added

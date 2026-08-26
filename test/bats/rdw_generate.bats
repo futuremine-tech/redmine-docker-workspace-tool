@@ -1012,6 +1012,22 @@ ENVEOF
   unset RDC_MOCK_SKIP_IMAGE_EXTRACT
 }
 
+# RDC-REQ-F0303G: assets:precompile ステージは plugins のアセットもプリコンパイル対象に含めるため
+# plugins を bind mount する（バグ修正: 欠けていると plugin のアセットが public/assets/ に生成されず、
+# 実行時に ActionController::RoutingError (No route matches [GET] /assets/plugin_assets/...) が発生する）
+@test "[RDC-REQ-F0303G] generate: assets:precompile ステージに plugins の bind mount が含まれる" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_SKIP_IMAGE_EXTRACT=1
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  cd "$WS"
+  run rdw generate
+  [ "$status" -eq 0 ]
+  # bundle install ステージにも同じ文字列があるため、assets:precompile を含む RUN ブロックのみを抽出して検証する
+  precompile_block=$(awk '/# Precompile assets/,/bundle exec rake assets:precompile/' "$WS/Dockerfile")
+  echo "$precompile_block" | grep -q -- "--mount=type=bind,source=plugins,target=/usr/src/redmine/plugins"
+  unset RDC_MOCK_SKIP_IMAGE_EXTRACT
+}
+
 # RDC-REQ-F0303H: --relative-url-root 指定時は compose build.args に RAILS_RELATIVE_URL_ROOT の値が設定される
 @test "[RDC-REQ-F0969] generate: --relative-url-root /redmine のとき compose build.args に RAILS_RELATIVE_URL_ROOT=/redmine が含まれる" {
   export RDC_ALLOW_MOCK=1
