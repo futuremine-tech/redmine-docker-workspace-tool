@@ -208,3 +208,14 @@ teardown() {
   echo "$output" | grep -q "Steps:"
   echo "$output" | grep -q -- "--- Next Action ---"
 }
+
+# ---- auto実行中の個別サブコマンド手動実行の抑止 (RDC-REQ-F1424関連、design_log 2026-08-28エントリ参照) ----
+
+# RDC-REQ-F1424: 生存中のPIDを記録した .rdc_auto.lock がある場合は失敗する
+@test "[RDC-REQ-F1424] migrate: auto実行中（生存中のPIDのロックあり）の場合は失敗する" {
+  echo "$$" > "$WS/.rdc_auto.lock"
+  cd "$WS"
+  run rdw migrate
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "auto.*running\|auto.*実行"
+}

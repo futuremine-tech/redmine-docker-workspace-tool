@@ -41,6 +41,7 @@ source "$_RDC_LIB_DIR/info_service.bash"
 source "$_RDC_LIB_DIR/remove_plugin_service.bash"
 source "$_RDC_LIB_DIR/add_plugin_service.bash"
 source "$_RDC_LIB_DIR/export_gemfile_lock_service.bash"
+source "$_RDC_LIB_DIR/auto_service.bash"
 
 # rdw_dispatch()
 # subcommand を各 Service へ振り分ける
@@ -71,10 +72,11 @@ rdw_dispatch() {
     remove-plugin) remove_plugin_service_run "$@" ;;
     add-plugin)    add_plugin_service_run "$@" ;;
     export-gemfile-lock) export_gemfile_lock_service_run "$@" ;;
+    auto)          auto_service_run "$@" ;;
     *)
       echo "Unknown subcommand: $command" >&2
       echo "Usage: redmine-docker-workspace <subcommand> [options]" >&2
-      echo "Subcommands: init, dbdump, generate, prepare-db, migrate, check, clean, status, info, remove-plugin, add-plugin, export-gemfile-lock" >&2
+      echo "Subcommands: init, dbdump, generate, prepare-db, migrate, check, clean, status, info, remove-plugin, add-plugin, export-gemfile-lock, auto" >&2
       return 1
       ;;
   esac
@@ -114,6 +116,7 @@ rdw_main() {
           echo "  add-plugin     Add a Redmine plugin to the workspace"
           echo "  remove-plugin  Remove a Redmine plugin from the workspace"
           echo "  export-gemfile-lock  Extract Gemfile.lock from built image"
+          echo "  auto      Build and start a new-generation-mode workspace in one command"
           echo ""
           echo "Global Options:"
           echo "  -f, --force    Skip confirmation prompts for destructive operations"

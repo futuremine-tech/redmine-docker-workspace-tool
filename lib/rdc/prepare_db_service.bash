@@ -18,6 +18,14 @@ prepare_db_service_run() {
     echo "ERROR: Workspace not initialized. Run 'init' to start." >&2
     return 1
   }
+
+  # RDC-REQ-F1424関連: auto実行中の同一ワークスペースへの個別サブコマンド手動実行を防ぐ
+  local existing_pid
+  existing_pid=$(state_store_check_auto_lock "$workspace") || {
+    echo "ERROR: 'auto' is currently running for this workspace (pid: $existing_pid). Wait for it to finish before running individual subcommands." >&2
+    return 1
+  }
+
   export RDC_LOG_FILE="$workspace/redmine-docker-workspace.log"
 
   local import_from=""

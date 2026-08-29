@@ -48,14 +48,50 @@ _generate_service_port_in_use() {
   return 2
 }
 
+# _generate_service_port_reserved_by_sibling_workspace()
+# --targetの親ディレクトリ直下（非再帰、兄弟ディレクトリのみ）の他ワークスペースの
+# .rdc_state が記録する redmine_bind のポートと一致するかを確認する (RDC-REQ-F1441)。
+# ホスト上でLISTEN中かどうかだけを見る _generate_service_port_in_use() は、対象の
+# コンテナがまだ起動していない（generate済みだが docker compose up -d 未実施、または
+# 一旦 down 済み）他ワークスペースの予約ポートを検知できないため、これを補う。
+# args: port, workspace_path（自分自身を除外するため）
+# returns: 0 予約済み（使用中とみなす）, 1 予約なし
+_generate_service_port_reserved_by_sibling_workspace() {
+  local port="${1:?port required}"
+  local workspace_path="${2:?workspace_path required}"
+  local parent_dir
+  parent_dir="$(dirname "$workspace_path")"
+  [[ ! -d "$parent_dir" ]] && return 1
+
+  local sibling state_file other_bind other_port
+  for sibling in "$parent_dir"/*/; do
+    sibling="${sibling%/}"
+    [[ "$sibling" == "$workspace_path" ]] && continue
+    state_file="$sibling/.rdc_state"
+    [[ -f "$state_file" ]] || continue
+    other_bind=$(grep "^redmine_bind=" "$state_file" 2>/dev/null | cut -d= -f2- || true)
+    [[ -z "$other_bind" ]] && continue
+    other_port="${other_bind##*:}"
+    [[ "$other_port" == "$port" ]] && return 0
+  done
+  return 1
+}
+
+# args: start_port, workspace_path (optional, RDC-REQ-F1441: 指定時は兄弟ワークスペースの
+# 予約ポートも回避する。省略時は従来通りホストのLISTEN状態のみで判定する)
 _generate_service_find_free_port() {
   local port="${1:-38080}"
+  local workspace_path="${2:-}"
   while true; do
     _generate_service_port_in_use "$port"
     local rc=$?
     case "$rc" in
       0) ((port++)) ;;
       1)
+        if [[ -n "$workspace_path" ]] && _generate_service_port_reserved_by_sibling_workspace "$port" "$workspace_path"; then
+          ((port++))
+          continue
+        fi
         echo "$port"
         return 0
         ;;
@@ -114,6 +150,14 @@ generate_service_run() {
     echo "ERROR: Workspace not initialized. Run 'init' to start." >&2
     return 1
   }
+
+  # RDC-REQ-F1424関連: auto実行中の同一ワークスペースへの個別サブコマンド手動実行を防ぐ
+  local existing_pid
+  existing_pid=$(state_store_check_auto_lock "$workspace") || {
+    echo "ERROR: 'auto' is currently running for this workspace (pid: $existing_pid). Wait for it to finish before running individual subcommands." >&2
+    return 1
+  }
+
   export RDC_LOG_FILE="$workspace/redmine-docker-workspace.log"
   local bind_host="127.0.0.1"
   local bind_port=""
@@ -257,7 +301,7 @@ generate_service_run() {
 
   # Resolve ports
   if [[ -z "$bind_port" ]]; then
-    bind_port=$(_generate_service_find_free_port 38080) || return 1
+    bind_port=$(_generate_service_find_free_port 38080 "$workspace") || return 1
   fi
 
   local redmine_bind="${bind_host}:${bind_port}"

@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.6] - 2026-08-30
+
+### Added
+
+- New `auto` subcommand: runs `init`, `generate`, `prepare-db`, `docker compose build`, `migrate`, `docker compose up -d`, and `check` in sequence as a single command, for new-generation-mode workspaces. Supports `--add-plugin URL[#ref]` (repeatable) to install plugins before the build step. Generates `DB_PASSWORD` automatically instead of prompting. Refuses to run twice concurrently on the same workspace (`.rdc_auto.lock`); while it's running, `init`/`generate`/`prepare-db`/`migrate`/`check` also refuse to run against that workspace directly. See the [Subcommand Reference](../docs/REFERENCE.md#auto--build-a-new-workspace-in-one-command).
+- `status --json`: the same step/progress information as the human-readable `status` output, as JSON. Includes a `url` field (the Redmine access URL, once `generate` has completed) independent of whether Redmine is currently running.
+- `init --list --json` / `init --list-all --json`: the same tag listing as JSON, for populating a version picker before `auto`/`init`.
+- New [Machine-Readable Reference](../docs/REFERENCE-JSON.md) documenting the `--json` output of `info`, `status`, and `init --list`/`--list-all`.
+- `generate`'s automatic port selection (when `--bind-port` is omitted) now also avoids ports already reserved by sibling workspace directories (recorded in their `.rdc_state`), even if those workspaces' containers aren't currently running — not just ports currently in use on the host.
+
+### Fixed
+
+- `status` (and `status --json`) no longer reports "All steps complete" / a running Redmine when every pipeline step is `done` but the Redmine container isn't currently running (e.g. after `docker compose down`). It now prompts `docker compose up -d` in that case, matching what `external.compose_runtime` already showed.
+
 ## [0.9.5] - 2026-08-27
 
 ### Fixed

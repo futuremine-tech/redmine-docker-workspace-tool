@@ -76,6 +76,17 @@ Run commands in the following order. Use `status` to check your progress at any 
 init → generate → prepare-db → docker compose build → migrate → docker compose up -d → check
 ```
 
+**Shortcut**: for a brand-new environment (`new` mode — no Passenger or existing-workspace migration involved), `auto` runs this entire pipeline in a single command:
+
+```bash
+redmine-docker-workspace auto \
+  --target /srv/redmine-workspace \
+  --redmine 6.0.3 \
+  --fresh-db
+```
+
+See the [Subcommand Reference](docs/REFERENCE.md#auto--build-a-new-workspace-in-one-command) for the full option list (including `--add-plugin` to install plugins before the build step) and failure/locking behavior. The step-by-step commands below still apply for Passenger/existing-workspace migrations, or when you want more control over each step.
+
 ### Step Details
 
 #### 1. Initialize Workspace
@@ -215,6 +226,7 @@ Every subcommand execution is recorded in `redmine-docker-workspace.log` in the 
 ## Documentation
 
 - [Subcommand Reference](docs/REFERENCE.md) — Full option reference
+- [Machine-Readable Reference](docs/REFERENCE-JSON.md) — `--json` output of `info`, `status`, `init --list`/`--list-all`, for external tooling
 - [Recipe Scripts](docs/RECIPES.md) — Sample setup scripts
 
 ---

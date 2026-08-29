@@ -100,3 +100,12 @@ teardown() {
   [ "$status" -eq 0 ]
   [ ! -f "$WS/activate-workspace-tool.sh" ]
 }
+
+# RDC-REQ-F1424関連: auto が中断され .rdc_auto.lock が残っている場合、clean で削除される
+@test "[RDC-REQ-F1424] clean: 中断された auto の .rdc_auto.lock が削除される" {
+  echo "99999999" > "$WS/.rdc_auto.lock"
+  cd "$WS"
+  run rdw clean
+  [ "$status" -eq 0 ]
+  [ ! -f "$WS/.rdc_auto.lock" ]
+}

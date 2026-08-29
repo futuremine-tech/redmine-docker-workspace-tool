@@ -118,3 +118,34 @@ state_store_find_workspace_root() {
   fi
   return 1
 }
+
+# state_store_check_auto_lock()
+# ワークスペースが（自分以外の）auto によりロック中（生存中の他PIDが .rdc_auto.lock に
+# 記録されている）かを確認する。auto 自身以外の全サブコマンドが、Docker/状態への実処理へ
+# 入る前に呼び出す（auto実行中の個別サブコマンド手動実行によるワークスペース競合を防ぐ）。
+# ロックファイル自体の取得・解放（書き込み側）は auto_service.bash の責務とし、
+# ここでは読み取り専用の確認のみを行う（init_service.bash 等がこのファイルより後段の
+# auto_service.bash を source すると循環 source になるため、判定ロジックをこちらへ集約する）。
+# メッセージ整形は呼び出し側（呼び出し元ごとに文言を変える）の責務とし、本関数はロック保持中の
+# PIDを返すのみに留める。
+# 自プロセス（$$）が記録したロックは対象外とする: auto自身は`init_service_run`等を
+# サブシェル越しも含め同一プロセス内で直接関数呼び出しする（bashの$$はサブシェル内でも
+# 変わらず親プロセスのPIDを指す）ため、自分自身のロックをそのまま突き合わせると常に
+# 「生存中」と判定され自己ブロックしてしまう不具合があった（実機テストで発覚）。
+# args: workspace_path
+# stdout: ロック保持中のPID（自プロセス以外がロック中の場合のみ）
+# returns: 0 ロックなし、または自プロセス自身のロック（実行可）, 1 他プロセスのauto実行中
+state_store_check_auto_lock() {
+  local workspace_path="${1:?workspace_path required}"
+  local lock_file="$workspace_path/.rdc_auto.lock"
+  [[ ! -f "$lock_file" ]] && return 0
+
+  local existing_pid
+  existing_pid=$(cat "$lock_file" 2>/dev/null || true)
+  [[ "$existing_pid" == "$$" ]] && return 0
+  if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+    echo "$existing_pid"
+    return 1
+  fi
+  return 0
+}

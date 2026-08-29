@@ -44,6 +44,9 @@ clean_service_run() {
   [[ -e "$workspace/config/configuration.yml" ]] && rm -rf "$workspace/config/configuration.yml"
   [[ -e "$workspace/config/database.yml" ]] && rm -rf "$workspace/config/database.yml"
   rm -f "$workspace/verification/manifest.json"
+  # autoが中断された場合に残りうるロックファイル(RDC-REQ-F1424関連)。cleanはauto自身のロック
+  # チェック対象外(復旧手段として使えなくなるため)であり、削除は明示的にここで行う。
+  rm -f "$workspace/.rdc_auto.lock"
 
   # Leave a minimal .rdc_state to mark this as a cleaned workspace
   # This allows 'init' (without --target) to re-initialize this directory

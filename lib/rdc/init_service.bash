@@ -107,7 +107,7 @@ init_service_run() {
   local mode="" redmine_root="" apache_config_dir="" source_workspace=""
   local target_product="" target_tag=""
   local redmine_tag="" redmica_tag="" base_image=""
-  local list_mode=""
+  local list_mode="" list_json=false
 
   # Parse args
   local args=("$@")
@@ -128,6 +128,7 @@ init_service_run() {
         echo "  --base-image REPO:TAG               Target base image (new mode only)"
         echo "  --list                              List supported images (x.y.z tags only) and exit"
         echo "  --list-all                          List all images (including derived tags) and exit"
+        echo "  --json                              With --list/--list-all, output the list as JSON"
         echo "  -v, --verbose                       Verbose output"
         echo ""
         echo "Note: When running as root, writable container directories (files/, log/, tmp/)"
@@ -137,6 +138,7 @@ init_service_run() {
         ;;
       --list)     list_mode="semver"; ((i+=1)) ;;
       --list-all) list_mode="all";    ((i+=1)) ;;
+      --json)     list_json=true;     ((i+=1)) ;;
       --mode) mode="${args[$((i+1))]}"; ((i+=2)) ;;
       --mode=*) mode="${args[$i]#--mode=}"; ((i+=1)) ;;
       --target) workspace="${args[$((i+1))]}"; ((i+=2)) ;;
@@ -160,7 +162,7 @@ init_service_run() {
 
   # --list / --list-all: イメージ一覧表示して即リターン
   if [[ -n "$list_mode" ]]; then
-    init_service_list_tags "$list_mode"
+    init_service_list_tags "$list_mode" "$list_json"
     return $?
   fi
 
@@ -254,6 +256,13 @@ init_service_run() {
     ${apache_config_dir:+--apache-config-dir "$apache_config_dir"} \
     ${source_workspace:+--source "$source_workspace"} \
     --target "$workspace") || return 1
+
+  # RDC-REQ-F1424関連: auto実行中の同一ワークスペースへの個別サブコマンド手動実行を防ぐ
+  local existing_pid
+  existing_pid=$(state_store_check_auto_lock "$workspace") || {
+    echo "ERROR: 'auto' is currently running for this workspace (pid: $existing_pid). Wait for it to finish before running individual subcommands." >&2
+    return 1
+  }
 
   export RDC_LOG_FILE="$workspace/redmine-docker-workspace.log"
   logger_info "Initializing workspace: $workspace (mode: $resolved_mode)"
@@ -438,10 +447,17 @@ init_service_reset_downstream_states_if_reinit() {
 # init_service_list_tags()
 # 対応 4 リポジトリのタグ一覧を表示する
 # semver モード (--list) では Redmine 系を RDC-REQ-F1309 の 7.0.0 閾値と一致させて振り分け表示する
-# args: filter_mode (semver|all)
+# args: filter_mode (semver|all), json_mode (true|false, default false)
 # returns: 0 on success, 1 if all repos failed
 init_service_list_tags() {
   local filter="${1:-semver}"
+  local json_mode="${2:-false}"
+
+  if [[ "$json_mode" == "true" ]]; then
+    _init_service_list_tags_json "$filter"
+    return $?
+  fi
+
   local any_error=false
 
   if [[ "$filter" == "semver" ]]; then
@@ -535,6 +551,162 @@ print(json.load(sys.stdin).get('next') or '')
   printf '%s\n' "${all_tags[@]}" | sort -V -r | sed "s|^|  ${image_prefix}:|"
 }
 
+# ---- init --list/--list-all --json (RDC-REQ-F1431〜F1434) ----
+# 設計: develop/docs/1A-DESIGN-F1415-auto-and-json-outputs.md 3節
+# JSON構築は他のJSON出力箇所（info/status）の「jq不使用・文字列連結」方針から意図的に外れ、
+# python3のjson.dumpsで組み立てる（このファイル自体が既にDocker Hub APIパースでpython3必須
+# 依存であり、タグ数が数十〜100件超になりうるため文字列連結より安全と判断。1A-DESIGN 3.1節
+# 設計判断2参照）。bashの変数をpython3ソースへ直接文字列展開せず、環境変数経由でos.environから
+# 読み取る（値にクォート等が含まれてもpythonソースを壊さないため）。
+
+# _init_service_repo_label()
+# 1 リポジトリ分の人間可読ラベル（cli_option部分を除く説明文のみ）を返す
+# args: repo, filter_mode (semver|all)
+# stdout: label
+_init_service_repo_label() {
+  local repo="${1:?repo required}"
+  local filter="${2:-semver}"
+  case "$repo" in
+    library/redmine)
+      if [[ "$filter" == "semver" ]]; then echo "Redmine < 7.0.0 (official)"; else echo "Redmine (official)"; fi
+      ;;
+    futuremine/redmine)
+      if [[ "$filter" == "semver" ]]; then echo "Redmine >= 7.0.0 (futuremine)"; else echo "Redmine (futuremine)"; fi
+      ;;
+    redmica/redmica) echo "RedMica < 3.2.0" ;;
+    futuremine/redmica) echo "RedMica >= 3.2.0" ;;
+  esac
+}
+
+# _init_service_fetch_repo_tags_json()
+# 1 リポジトリ分のタグを全ページ取得し、1件分のJSONオブジェクト文字列を出力する
+# args: repo, cli_option (--redmine|--redmica), filter_mode (semver|all), max_version_exclusive (optional)
+# stdout: {"cli_option": ..., "repo": ..., "label": ..., "images": [...]} または "error": "fetch_failed" 版
+# returns: 0 on success, 1 on fetch error
+_init_service_fetch_repo_tags_json() {
+  local repo="${1:?repo required}"
+  local cli_option="${2:?cli_option required}"
+  local filter="${3:-semver}"
+  local max_version_exclusive="${4:-}"
+
+  local label
+  label=$(_init_service_repo_label "$repo" "$filter")
+
+  local url="https://hub.docker.com/v2/repositories/${repo}/tags?page_size=100&ordering=last_updated"
+  local all_tags=()
+  local fetch_failed=false
+
+  while true; do
+    local response
+    response=$(_init_service_hub_get "$url") || { fetch_failed=true; break; }
+
+    local page_tags
+    if [[ "$filter" == "semver" ]]; then
+      page_tags=$(python3 -c "
+import json, sys, re
+for r in json.load(sys.stdin).get('results', []):
+    if re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', r['name']):
+        print(r['name'])
+" <<< "$response" 2>/dev/null)
+    else
+      page_tags=$(python3 -c "
+import json, sys
+for r in json.load(sys.stdin).get('results', []):
+    print(r['name'])
+" <<< "$response" 2>/dev/null)
+    fi
+
+    while IFS= read -r t; do
+      [[ -n "$t" ]] && all_tags+=("$t")
+    done <<< "$page_tags"
+
+    local next_url
+    next_url=$(python3 -c "
+import json, sys
+print(json.load(sys.stdin).get('next') or '')
+" <<< "$response" 2>/dev/null)
+    [[ -z "$next_url" ]] && break
+    url="$next_url"
+  done
+
+  if [[ "$fetch_failed" == "true" ]]; then
+    RDC_JSON_CLI_OPTION="$cli_option" RDC_JSON_REPO="$repo" RDC_JSON_LABEL="$label" python3 -c "
+import json, os
+print(json.dumps({
+    'cli_option': os.environ['RDC_JSON_CLI_OPTION'],
+    'repo': os.environ['RDC_JSON_REPO'],
+    'label': os.environ['RDC_JSON_LABEL'],
+    'error': 'fetch_failed',
+}))
+"
+    return 1
+  fi
+
+  if [[ "$filter" == "semver" && -n "$max_version_exclusive" ]]; then
+    local filtered_tags=()
+    local t lower
+    for t in "${all_tags[@]}"; do
+      lower=$(printf '%s\n%s\n' "$t" "$max_version_exclusive" | sort -V | head -1)
+      [[ "$lower" == "$t" && "$t" != "$max_version_exclusive" ]] && filtered_tags+=("$t")
+    done
+    all_tags=("${filtered_tags[@]}")
+  fi
+
+  # JSON側はdocker pullにそのまま渡せる完全な参照を優先し、人間可読側と異なり
+  # library/プレフィックスを省略しない（1A-DESIGN 3.1節設計判断1）
+  RDC_JSON_CLI_OPTION="$cli_option" RDC_JSON_REPO="$repo" RDC_JSON_LABEL="$label" RDC_JSON_IMAGE_PREFIX="$repo" \
+    python3 -c "
+import json, os, sys
+prefix = os.environ['RDC_JSON_IMAGE_PREFIX']
+tags = [line.strip() for line in sys.stdin if line.strip()]
+print(json.dumps({
+    'cli_option': os.environ['RDC_JSON_CLI_OPTION'],
+    'repo': os.environ['RDC_JSON_REPO'],
+    'label': os.environ['RDC_JSON_LABEL'],
+    'images': [f'{prefix}:{t}' for t in tags],
+}))
+" <<< "$(printf '%s\n' "${all_tags[@]}")"
+  return 0
+}
+
+# _init_service_list_tags_json()
+# 対応4リポジトリ分を _init_service_fetch_repo_tags_json() で集約し、全体JSONを出力する
+# args: filter_mode (semver|all)
+# stdout: {"repositories": [...]} または全滅時 {"error": "fetch_failed", "message": "..."}
+# returns: 0 on success (1件以上取得成功), 1 if all repos failed
+_init_service_list_tags_json() {
+  local filter="${1:-semver}"
+  local repos_json=()
+
+  # _init_service_fetch_repo_tags_json は1リポジトリ分の取得失敗を非ゼロ終了で伝える
+  # 「意図した」異常系（他リポジトリの継続処理・success_countでの集計に必要）であり、
+  # bin/redmine-docker-workspace の set -e でスクリプト全体が落ちないよう明示的に無視する。
+  if [[ "$filter" == "semver" ]]; then
+    repos_json+=("$(_init_service_fetch_repo_tags_json "library/redmine" "--redmine" "$filter" "7.0.0")") || true
+    repos_json+=("$(_init_service_fetch_repo_tags_json "futuremine/redmine" "--redmine" "$filter" "")") || true
+  else
+    repos_json+=("$(_init_service_fetch_repo_tags_json "library/redmine" "--redmine" "$filter" "")") || true
+    repos_json+=("$(_init_service_fetch_repo_tags_json "futuremine/redmine" "--redmine" "$filter" "")") || true
+  fi
+  repos_json+=("$(_init_service_fetch_repo_tags_json "redmica/redmica" "--redmica" "$filter" "")") || true
+  repos_json+=("$(_init_service_fetch_repo_tags_json "futuremine/redmica" "--redmica" "$filter" "")") || true
+
+  local success_count=0 r
+  for r in "${repos_json[@]}"; do
+    [[ "$r" == *'"images"'* ]] && ((success_count+=1))
+  done
+
+  if [[ "$success_count" -eq 0 ]]; then
+    echo '{"error": "fetch_failed", "message": "Failed to fetch tags for all repositories."}'
+    return 1
+  fi
+
+  local joined
+  joined=$(IFS=,; printf '%s' "${repos_json[*]}")
+  echo "{\"repositories\": [${joined}]}"
+  return 0
+}
+
 # _init_service_hub_get()
 # Docker Hub API へ HTTP GET する（テスト用モック境界）
 # RDC_ALLOW_MOCK=1 時は URL パターンに応じたハードコード JSON を返す
@@ -544,6 +716,9 @@ _init_service_hub_get() {
   local url="${1:?url required}"
 
   if [[ "${RDC_ALLOW_MOCK:-}" == "1" ]]; then
+    if [[ -n "${RDC_MOCK_HUB_FAIL_REPO:-}" && "$url" == *"${RDC_MOCK_HUB_FAIL_REPO}"* ]]; then
+      return 1
+    fi
     if [[ "$url" == *"library/redmine"* ]]; then
       printf '{"results":[{"name":"7.0.0"},{"name":"6.0.3"},{"name":"6.0.3-alpine"},{"name":"6.0.2"},{"name":"6.0.2-alpine"},{"name":"latest"}],"next":null}'
     elif [[ "$url" == *"futuremine/redmine"* ]]; then

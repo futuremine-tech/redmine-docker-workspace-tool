@@ -2,6 +2,8 @@
 # test/bats/rdw_status.bats
 # 結合テスト: status サブコマンド（StatusService#run, StatusService#resolve_next_action）
 # 根拠要件: RDC-REQ-F1001〜F1005, RDC-REQ-F1006, RDC-REQ-F1007, RDC-REQ-F0814, RDC-REQ-F0920〜F0923, RDC-REQ-F0950, RDC-REQ-F0951
+# RDC-REQ-F1412〜F1414（status --json）、RDC-REQ-F0980〜F0981（テスト要件）
+# 設計: develop/docs/1A-DESIGN-F1415-auto-and-json-outputs.md 2節
 
 source test/helpers/rdw_helpers.sh
 
@@ -504,4 +506,172 @@ teardown() {
   run rdw status
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "no themes installed"
+}
+
+# ---- StatusService#run: JSON出力 (RDC-REQ-F1412〜F1414) ----
+
+# RDC-REQ-F0980: status --json の出力が有効なJSON形式である
+@test "[RDC-REQ-F0980] status --json: 出力が有効なJSON形式である" {
+  rdw_partial_state_until_generate "$WS"
+  cd "$WS"
+  RDC_MOCK_IMAGE_EXISTS=false run rdw status --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)"
+}
+
+# RDC-REQ-F1412, F0980: status --json は人間可読出力と同内容（各ステップの完了状態・次アクション）を含む
+@test "[RDC-REQ-F1412][RDC-REQ-F0980] status --json: 各ステップの完了状態一覧と次アクションを含む" {
+  rdw_partial_state_until_generate "$WS"
+  cd "$WS"
+  RDC_MOCK_IMAGE_EXISTS=false run rdw status --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['steps']['init'] == 'done'
+assert d['steps']['generate'] == 'done'
+assert d['steps']['prepare-db'] == 'pending'
+assert d['steps']['migrate'] == 'pending'
+assert d['steps']['check'] == 'pending'
+assert 'external' in d
+assert isinstance(d['next_action']['lines'], list)
+assert len(d['next_action']['lines']) > 0
+"
+}
+
+# RDC-REQ-F1412: status --json の external セクションは compose build/up/runtime の状態を含む
+@test "[RDC-REQ-F1412] status --json: external セクションに compose build/up/runtime の状態を含む" {
+  rdw_full_state_passenger "$WS"
+  cd "$WS"
+  RDC_MOCK_IMAGE_EXISTS=true RDC_MOCK_IMAGE_GENERATE_ID=2026-01-01T00:00:00Z RDC_MOCK_COMPOSE_RUNNING=true \
+    run rdw status --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['external']['compose_build'] == 'done'
+assert d['external']['compose_up'] == 'done'
+assert d['external']['compose_runtime'] == 'running'
+"
+}
+
+# RDC-REQ-F1413: .rdc_state が存在しない場合、エラー内容を含むJSONを出力したうえで失敗終了する
+@test "[RDC-REQ-F1413] status --json: .rdc_state が存在しない場合はエラーJSONを出力し失敗終了する" {
+  cd "$WS"
+  run rdw status --json
+  [ "$status" -ne 0 ]
+  echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'error' in d"
+}
+
+# RDC-REQ-F1413: クリーン済みワークスペースでもエラーJSONを出力したうえで失敗終了する
+@test "[RDC-REQ-F1413] status --json: クリーン済みワークスペースはエラーJSONを出力し失敗終了する" {
+  rdw_init_state "$WS" "clean_status=done"
+  cd "$WS"
+  run rdw status --json
+  [ "$status" -ne 0 ]
+  echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'error' in d"
+}
+
+# RDC-REQ-F1414: status --json の出力にDB接続パスワードやsecret key等の機密情報が含まれない
+@test "[RDC-REQ-F1414] status --json: 出力にDB接続パスワードやsecret key等の機密情報が含まれない" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" "generate_status=pending" \
+    "import_status=pending" "migrate_status=pending" "check_status=pending" \
+    "db_password=super-secret-password" "secret_key_base=super-secret-key-base"
+  cd "$WS"
+  RDC_MOCK_IMAGE_EXISTS=false run rdw status --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)"
+  ! echo "$output" | grep -qi "super-secret-password"
+  ! echo "$output" | grep -qi "super-secret-key-base"
+}
+
+# ---- StatusService: Stage 9是正・urlフィールド (RDC-REQ-F1441〜F1443、F0998〜F1000) ----
+# 設計: develop/docs/1B-DESIGN-F1441-status-accuracy-and-port-collision.md
+
+# RDC-REQ-F1442, F0999: 全ステップ完了済みでもcompose未起動なら「完了」ではなくdocker compose up -dを案内する（人間可読）
+@test "[RDC-REQ-F1442][RDC-REQ-F0999] status: 全ステップ完了済みでもcompose未起動なら完了と案内しない" {
+  rdw_full_state_passenger "$WS"
+  cd "$WS"
+  RDC_MOCK_IMAGE_EXISTS=true RDC_MOCK_IMAGE_GENERATE_ID=2026-01-01T00:00:00Z RDC_MOCK_COMPOSE_RUNNING=false \
+    run rdw status
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qi "docker compose up -d"
+  ! echo "$output" | grep -q "完了 (complete)"
+}
+
+# RDC-REQ-F1442, F0999: 同上をstatus --jsonでも確認する
+@test "[RDC-REQ-F1442][RDC-REQ-F0999] status --json: 全ステップ完了済みでもcompose未起動ならnext_actionが完了を示さない" {
+  rdw_full_state_passenger "$WS"
+  cd "$WS"
+  RDC_MOCK_IMAGE_EXISTS=true RDC_MOCK_IMAGE_GENERATE_ID=2026-01-01T00:00:00Z RDC_MOCK_COMPOSE_RUNNING=false \
+    run rdw status --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+lines = ' '.join(d['next_action']['lines'])
+assert 'docker compose up -d' in lines
+assert '完了' not in lines
+"
+}
+
+# RDC-REQ-F1442: 全ステップ完了済みでcompose起動中なら従来通り完了と案内する（回帰確認）
+@test "[RDC-REQ-F1442] status: 全ステップ完了済みでcompose起動中なら完了と案内する（回帰確認）" {
+  rdw_full_state_passenger "$WS"
+  cd "$WS"
+  RDC_MOCK_IMAGE_EXISTS=true RDC_MOCK_IMAGE_GENERATE_ID=2026-01-01T00:00:00Z RDC_MOCK_COMPOSE_RUNNING=true \
+    run rdw status
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "完了 (complete)"
+  echo "$output" | grep -q "Redmine is running at"
+}
+
+# RDC-REQ-F1443, F1000: status --json はgenerate完了後にurlフィールドを含む
+@test "[RDC-REQ-F1443][RDC-REQ-F1000] status --json: generate完了後はurlフィールドを含む" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=6.1.2" "redmine_bind=127.0.0.1:38081" "relative_url_root=/redmine-auto" \
+    "init_status=done" "generate_status=done" "import_status=pending" \
+    "migrate_status=pending" "check_status=pending"
+  cd "$WS"
+  RDC_MOCK_IMAGE_EXISTS=false run rdw status --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['url'] == 'http://127.0.0.1:38081/redmine-auto/'
+"
+}
+
+# RDC-REQ-F1443, F1000: status --json はgenerate未完了時はurlフィールドを含まない（null）
+@test "[RDC-REQ-F1443][RDC-REQ-F1000] status --json: generate未完了時はurlがnull" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=6.1.2" "init_status=done" "generate_status=pending" \
+    "import_status=pending" "migrate_status=pending" "check_status=pending"
+  cd "$WS"
+  run rdw status --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['url'] is None
+"
+}
+
+# RDC-REQ-F1443, F1000: urlフィールドはcompose_runtimeがstoppedであっても出力される（起動状態とは独立）
+@test "[RDC-REQ-F1443][RDC-REQ-F1000] status --json: compose未起動でもurlフィールドは出力される" {
+  rdw_full_state_passenger "$WS"
+  cd "$WS"
+  RDC_MOCK_IMAGE_EXISTS=true RDC_MOCK_IMAGE_GENERATE_ID=2026-01-01T00:00:00Z RDC_MOCK_COMPOSE_RUNNING=false \
+    run rdw status --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d['url'] is not None
+assert d['external']['compose_runtime'] == 'stopped'
+"
 }

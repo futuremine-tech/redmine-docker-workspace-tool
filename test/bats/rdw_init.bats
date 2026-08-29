@@ -2,6 +2,8 @@
 # test/bats/rdw_init.bats
 # 結合テスト: init サブコマンド（passenger / workspace モード）
 # 根拠要件: RDC-REQ-F0904, RDC-REQ-F0905, RDC-REQ-F0906, RDC-REQ-F0810, RDC-REQ-F0954, RDC-REQ-F0955, RDC-REQ-F0956
+# RDC-REQ-F1431〜F1434（init --list/--list-all --json）、RDC-REQ-F0988〜F0990（テスト要件）
+# 設計: develop/docs/1A-DESIGN-F1415-auto-and-json-outputs.md 3節
 
 source test/helpers/rdw_helpers.sh
 
@@ -457,4 +459,99 @@ EOF
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "redmine:7\.0\.0"
   echo "$output" | grep -q "futuremine/redmine:6\.1\.3"
+}
+
+# ---- init --list/--list-all: JSON出力 (RDC-REQ-F1431〜F1434) ----
+
+# RDC-REQ-F0988: init --list --json の出力が有効なJSON形式である
+@test "[RDC-REQ-F0988] init --list --json: 出力が有効なJSON形式である" {
+  export RDC_ALLOW_MOCK=1
+  run rdw init --list --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "import json,sys; json.load(sys.stdin)"
+}
+
+# RDC-REQ-F1431, F0988: --list --json は --redmine/--redmica それぞれのリポジトリ区分ごとにフルイメージ名一覧を含む
+@test "[RDC-REQ-F1431][RDC-REQ-F0988] init --list --json: リポジトリ区分ごとにフルイメージ名一覧を含む" {
+  export RDC_ALLOW_MOCK=1
+  run rdw init --list --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+repos = {r['repo']: r for r in d['repositories']}
+assert repos['library/redmine']['cli_option'] == '--redmine'
+assert 'library/redmine:6.0.3' in repos['library/redmine']['images']
+assert repos['futuremine/redmica']['cli_option'] == '--redmica'
+assert 'futuremine/redmica:3.2.0' in repos['futuremine/redmica']['images']
+"
+}
+
+# RDC-REQ-F1433, F0988: --list --json は --list（人間可読）と同じ基準でセマンティックバージョン絞り込み・7.0.0閾値を適用する
+@test "[RDC-REQ-F1433][RDC-REQ-F0988] init --list --json: セマンティックバージョン絞り込み・7.0.0閾値を人間可読と同じ基準で適用する" {
+  export RDC_ALLOW_MOCK=1
+  run rdw init --list --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+repos = {r['repo']: r for r in d['repositories']}
+assert 'library/redmine:latest' not in repos['library/redmine']['images']
+assert 'library/redmine:6.0.3-alpine' not in repos['library/redmine']['images']
+assert 'library/redmine:7.0.0' not in repos['library/redmine']['images']
+assert 'futuremine/redmine:7.0.0' in repos['futuremine/redmine']['images']
+"
+}
+
+# RDC-REQ-F1434, F0989: --list-all --json はセマンティックバージョン絞り込みを行わず全タグを含む
+@test "[RDC-REQ-F1434][RDC-REQ-F0989] init --list-all --json: セマンティックバージョン絞り込みなしの全タグを含む" {
+  export RDC_ALLOW_MOCK=1
+  run rdw init --list-all --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+repos = {r['repo']: r for r in d['repositories']}
+assert 'library/redmine:latest' in repos['library/redmine']['images']
+assert 'library/redmine:6.0.3-alpine' in repos['library/redmine']['images']
+assert 'library/redmine:7.0.0' in repos['library/redmine']['images']
+assert 'futuremine/redmine:6.1.3' in repos['futuremine/redmine']['images']
+"
+}
+
+# RDC-REQ-F1432, F0990: 一部リポジトリの取得が失敗した場合、失敗リポジトリはエラーとして表現しつつ他は通常通り出力される
+@test "[RDC-REQ-F1432][RDC-REQ-F0990] init --list --json: 一部リポジトリ失敗時は失敗分をエラー表現し他は通常通り出力する" {
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_HUB_FAIL_REPO="library/redmine"
+  run rdw init --list --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+repos = {r['repo']: r for r in d['repositories']}
+assert 'error' in repos['library/redmine']
+assert 'images' not in repos['library/redmine']
+assert 'futuremine/redmine:7.0.0' in repos['futuremine/redmine']['images']
+assert 'redmica/redmica:2.7.0' in repos['redmica/redmica']['images']
+"
+}
+
+# ---- auto実行中の個別サブコマンド手動実行の抑止 (RDC-REQ-F1424関連、design_log 2026-08-28エントリ参照) ----
+
+# init: 生存中のPIDを記録した .rdc_auto.lock がある場合は失敗する
+@test "[RDC-REQ-F1424] init: auto実行中（生存中のPIDのロックあり）の場合は失敗する" {
+  echo "$$" > "$WS/.rdc_auto.lock"
+  run rdw init --base-image futuremine/redmica:4.1.1 --target "$WS"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qi "auto.*running\|auto.*実行"
+  [ ! -f "$WS/.rdc_state" ]
+}
+
+# init: 死んだPIDのロックが残っていても正常に実行できる
+@test "[RDC-REQ-F1424] init: auto実行中でも死んだPIDのロックが残っているだけなら実行できる" {
+  ( exit 0 ) & local dead_pid=$!
+  wait "$dead_pid" 2>/dev/null || true
+  echo "$dead_pid" > "$WS/.rdc_auto.lock"
+  run rdw init --base-image futuremine/redmica:4.1.1 --target "$WS"
+  [ "$status" -eq 0 ]
 }

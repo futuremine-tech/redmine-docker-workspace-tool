@@ -13,7 +13,44 @@ redmine-docker-workspace [--force] [--verbose] <subcommand> [...]
 | `-V`, `--version` | バージョン情報を表示 |
 | `-h`, `--help` | ヘルプを表示 |
 
-大半のサブコマンド（`dbdump`・`prepare-db`・`migrate`・`export-gemfile-lock`・`status`）はDockerデーモンが起動していることを前提とし、疎通できない場合は即座にエラー終了します（`init`・`check`・`add-plugin`はDockerを使わないため対象外）。`clean`・`remove-plugin`は削除処理自体はDocker非依存ですが、Redmineが起動中でないかを確認できないため、詳細は各コマンドの節を参照してください。`info`もDockerを前提とせず、コンテナ稼働状態の取得のみベストエフォートで試み、疎通不可時は「不明」として扱います（詳細は該当節を参照）。
+大半のサブコマンド（`dbdump`・`prepare-db`・`migrate`・`export-gemfile-lock`・`status`・`auto`）はDockerデーモンが起動していることを前提とし、疎通できない場合は即座にエラー終了します（`init`・`check`・`add-plugin`はDockerを使わないため対象外）。`clean`・`remove-plugin`は削除処理自体はDocker非依存ですが、Redmineが起動中でないかを確認できないため、詳細は各コマンドの節を参照してください。`info`もDockerを前提とせず、コンテナ稼働状態の取得のみベストエフォートで試み、疎通不可時は「不明」として扱います（詳細は該当節を参照）。
+
+`auto`が対象ワークスペースへ実行中の間は、`init`・`generate`・`prepare-db`・`migrate`・`check`はいずれもその同一ワークスペースへの実行を拒否します（別のワークスペースには影響しません）。詳細は[`auto`](#auto--ワンコマンドで新規ワークスペースを構築)を参照してください。
+
+`info`・`status`・`init --list`/`--list-all`の`--json`出力については、[機械可読リファレンス](REFERENCE-JSON-ja.md)を参照してください。
+
+---
+
+## `auto` — ワンコマンドで新規ワークスペースを構築
+
+```
+redmine-docker-workspace auto (--redmine TAG | --redmica TAG | --base-image IMAGE_REF) (--fresh-db | --import-from PATH) [options]
+```
+
+`init`・`generate`・`prepare-db`・`docker compose build`・`migrate`・`docker compose up -d`・`check`を順に、1つのコマンドで一気通貫実行します。
+
+**対象範囲**: 新規生成モード相当の入力のみ。Passenger入力モード・既存ワークスペース入力モードは`auto`では対応していません。これらは個別のサブコマンド（`init --mode passenger`または`init --mode workspace`から開始）を使用してください。
+
+| オプション | 説明 |
+|-----------|------|
+| `--redmine TAG` | 目標Redmineイメージタグ（`--redmine`/`--redmica`/`--base-image`のいずれか1つが必須） |
+| `--redmica TAG` | 目標RedMicaイメージタグ |
+| `--base-image IMAGE_REF` | 目標ベースイメージ |
+| `--target PATH` | ワークスペースディレクトリ（省略時: [`init`](#init--ワークスペース初期化)と同じ既定動作） |
+| `--fresh-db` | 空のDBを作成（`--fresh-db`/`--import-from`のいずれか1つが必須） |
+| `--import-from PATH` | 指定したダンプファイルから復元 |
+| `--relative-url-root PATH` | サブディレクトリ運用パス（例: `/redmine`）、`generate`へそのまま引き継ぎ |
+| `--bind-port PORT` | Redmineホスト公開ポート（既定: 自動検出）、`generate`へそのまま引き継ぎ |
+| `--lang LANG` | 初期データ読み込み時の言語（既定: `ja`）、`migrate`へそのまま引き継ぎ |
+| `--add-plugin URL[#ref]` | ビルド前にプラグインを追加（複数回指定可 — 複数プラグインには複数回指定） |
+
+`--add-plugin`はgit URLをそのまま指定するか、`URL#ref`形式でタグ・ブランチを固定できます（例: `--add-plugin https://github.com/example/redmine_agile.git#v1.6.0`）。`#ref`を省略した場合はリポジトリの既定ブランチを取得するため、後日`auto`を再実行すると、プラグインリポジトリが更新されていれば異なるコミットが入る可能性があります。これは[`add-plugin`](#add-plugin--プラグイン追加)の`URL --ref REF`の簡略形であり、`--name`/`--force`オプションは`auto`からは指定できません。
+
+いずれかのステップが失敗した場合、`auto`は直ちに停止し、どのステップがなぜ失敗したかを報告し、それ以上進みません。完了済みのステップは`.rdc_state`に記録されたままなので、`status`で状況を確認し、個別のサブコマンドで再実行するかを判断できます。自動的な再開機能はありません。最初からやり直すには、`clean`を実行してから`auto`を再実行してください。
+
+`auto`は同一ワークスペースへの多重実行を拒否します。実行中はPIDロックファイル（`.rdc_auto.lock`）を保持し、完了時（成功・失敗いずれも）に自動的に解放します。`auto`が途中で強制終了された場合（Ctrl-C、`kill`等）、ロックファイルが残ることがあります — 再実行前に`clean`を実行して削除してください。
+
+`auto`は常に自身でランダムな`DB_PASSWORD`を生成し、対話的な入力を求めることはありません（端末から直接`generate`を実行した場合とは異なり、`DB_PASSWORD`が他の方法で決定できない場合に対話入力を求めることがあります）。
 
 ---
 
@@ -35,6 +72,7 @@ redmine-docker-workspace init --target PATH [--mode <passenger|workspace|new>] [
 | `--source PATH` | 移行元ワークスペース（workspace モード） |
 | `--list` | 対応イメージ一覧を表示して終了（`x.y.z` 形式のみ、`--target` 不要） |
 | `--list-all` | 対応イメージ一覧を表示して終了（派生タグ含む全件、`--target` 不要） |
+| `--json` | `--list`/`--list-all`と併用時、一覧をJSON形式で出力 — [機械可読リファレンス](REFERENCE-JSON-ja.md)参照 |
 
 `--redmine TAG` はタグのバージョンに応じて使用するイメージリポジトリを自動選択する。`7.0.0`
 以降（および`latest`等の非セマンティックバージョンタグ）は、OSパッケージの脆弱性対策と
@@ -59,7 +97,7 @@ Dockerfile、docker-compose.yml、.env などを生成します。
 | オプション | 説明 |
 |-----------|------|
 | `--bind-host HOST` | Redmine バインドホスト（既定: 127.0.0.1） |
-| `--bind-port PORT` | Redmine ホスト公開ポート（既定: 自動検出） |
+| `--bind-port PORT` | Redmine ホスト公開ポート（既定: 自動検出 — 下記参照） |
 | `--db-publish-port PORT` | PostgreSQL をホストへ公開するポート（既定: ホスト非公開・Docker ネットワーク内のコンテナ間のみ接続可） |
 | `--relative-url-root PATH` | サブディレクトリ運用パス（例: `/redmine`） |
 | `--extra-config-mount FILENAME` | `config/FILENAME` をコンテナ内 `/usr/src/redmine/config/FILENAME` へ bind mount する（複数回指定可）。`FILENAME` は `config/` 配下の相対パス（`..` 不可、先頭 `/` 不可）で、ワークスペースに事前にファイルが存在している必要がある |
@@ -75,6 +113,8 @@ Dockerfile、docker-compose.yml、.env などを生成します。
 `generate` は `config/additional_environment.rb` も、`configuration.yml`・`database.yml` と同様にオプション指定不要で常時bind mountします。このファイルはRedmine公式が用意するRails initializerカスタマイズ用の拡張ポイントです（生成される `config/additional_environment.rb.example` 内のコメント参照。例: `config.active_job.queue_adapter = :inline`）。`config/additional_environment.rb` が未存在の場合、`generate` はイメージ内の `additional_environment.rb.example`（全行コメントのみで安全な既定値）からscaffoldします。既存ファイルは上書きしません。
 
 `--log-stdout` なし（デフォルト）では、生成される docker-compose.yml に `RAILS_LOG_TO_STDOUT: ""` が設定され、公式イメージのデフォルト（STDOUT 出力）を上書きしてファイルログを有効にします。Redmine のログはワークスペース配下の `log/production.log` に出力されます。`--log-stdout` を指定すると `RAILS_LOG_TO_STDOUT: "true"` に切り替わります。
+
+**ポート自動検出と兄弟ワークスペース**: `--bind-port` を省略すると、`generate` は38080番から順に空きポートを探します。「空き」の判定は2種類あります: (1) ホスト上で現在誰もLISTENしていないこと、(2) 兄弟ワークスペースディレクトリ（このワークスペースと同じ親ディレクトリの下にある、別のディレクトリ）がそのポートを既に予約していないこと（その兄弟ワークスペースの`.rdc_state`の`redmine_bind`を参照。そのワークスペースのコンテナが現在起動していなくても対象になります）。これにより、片方がまだ起動していない（または一旦停止した）状態でも、共通の親ディレクトリを持つ2つのワークスペースが同じポートを取得してしまうことを避けられます。1階層より深くネストした配置や、無関係な場所に散らばったワークスペースは確認対象外です。`--bind-port` を明示指定すると自動検出自体が発生しないため、このチェックは行われません — 明示指定したポートが既に使用中の場合は、自動変更せずそのまま失敗します。
 
 **テーマのアセットプリコンパイル（Redmine 6.x 以降）**: Redmine 6.x 以降ではテーマ CSS がアセットパイプライン経由で配信されるため、`assets:precompile` が必要です。`generate` が生成する Dockerfile は、テーマパスが `/usr/src/redmine/public/themes` 配下でない場合（= 6.x 系）に `docker compose build` 時に自動で `assets:precompile` を実行します。`SECRET_KEY_BASE` は `.env` の値を Docker build secret 経由で参照し、イメージレイヤーには残りません。`workspace/themes/` にテーマを配置後、`docker compose build && docker compose up -d` を実行してください。Redmine 5.x 系（テーマが `public/themes/` 配下）では `assets:precompile` は実行されません。
 
@@ -132,8 +172,12 @@ redmine-docker-workspace dbdump [--dump-filename FILENAME]
 ## `status` — 状態確認
 
 ```
-redmine-docker-workspace status
+redmine-docker-workspace status [--json]
 ```
+
+| オプション | 説明 |
+|-----------|------|
+| `--json` | 同じステップ・進捗情報をJSON形式で標準出力へ出力 — [機械可読リファレンス](REFERENCE-JSON-ja.md)参照 |
 
 現在のパイプライン進捗、インストール済みプラグイン一覧、次のアクションを表示します。
 
@@ -154,10 +198,12 @@ Plugins:
 Themes:
   farend_fancy               (manual)
 
-Next action: All steps complete. Run 'docker compose up -d' to start Redmine.
+Next action: All steps complete. Redmine is running at http://127.0.0.1:38080/.
 ```
 
 `generate --deployment` で構築した場合、generate 行に `[deployment build]` が付きます。プラグインを追加・削除した後にイメージの再ビルドが必要な場合、または Redmine 6.x 系でテーマを追加・更新した後にイメージの再ビルドが必要な場合は、`docker compose build` の実行を案内します。
+
+全ステップが`done`（`check`含む）であっても、それだけでは現在Redmineが起動中であることを意味しません — `check`は過去のある時点で検証に成功したという記録であり、その後`docker compose down`しても`check`の完了状態はリセットされません。`status`はこれを踏まえ、全ステップ完了済みでもRedmineコンテナが現在起動していなければ、完了とは案内せず`docker compose up -d`を案内します。
 
 使用中の Docker が rootful（`docker` グループ所属等による、実質 root 権限での実行）で動作している場合、`status` はセキュリティ上のリスクがある旨の警告を表示します（[rootless Docker](https://docs.docker.com/engine/security/rootless/) への切り替えを検討してください）。
 
@@ -171,11 +217,11 @@ redmine-docker-workspace info [--json]
 
 | オプション | 説明 |
 |-----------|------|
-| `--json` | 同じ内容をJSON形式で標準出力へ出力 |
+| `--json` | 同じ内容をJSON形式で標準出力へ出力 — [機械可読リファレンス](REFERENCE-JSON-ja.md)参照 |
 
 外部ツール（複数ワークスペースを管理するレジストリ等）向けの読み取り専用スナップショットです。人間へパイプライン進捗を案内する`status`とは異なり、対象製品種別・目標イメージタグ・実際に検出されたRedmine/RedMicaバージョン（`redmine_version`。[バージョン・ベースイメージの検出](#generate--docker-設定生成)参照。未検出（本機能実装前に`generate`済みのワークスペース等）の場合は目標イメージタグへフォールバック）・使用イメージ名・bindアドレス・`relative_url_root`・ワークスペースパス・各ステップ完了状況・検証要約（`check`が生成したmanifestより。`base_image_digest`を含む）・コンテナ稼働状態を出力します。他の大半のサブコマンドと異なり、`info`はDockerデーモンを前提としません。稼働状態の取得のみベストエフォートで試み、疎通できない場合は「不明」として扱ったうえで、他の情報は通常通り出力し正常終了します。
 
-ワークスペースが未初期化（またはクリーン済み）の場合は失敗します。`--json`指定時は、エラーもプレーンテキストではなく標準出力へのJSON（`{"error": "workspace_not_initialized", ...}`）として返すため、成功時・失敗時とも同じ方法でパースできます。
+ワークスペースが未初期化（またはクリーン済み）の場合は失敗します。`--json`指定時は、エラーもプレーンテキストではなく標準出力へのJSONとして返すため、成功時・失敗時とも同じ方法でパースできます。
 
 ---
 

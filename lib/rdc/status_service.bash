@@ -12,9 +12,18 @@ source "$_RDC_LIB_DIR/logger.bash"
 # args: argv...
 # returns: exit_code
 status_service_run() {
+  local json_mode=false
+  for arg in "$@"; do
+    [[ "$arg" == "--json" ]] && json_mode=true
+  done
+
   local workspace
   workspace=$(state_store_find_workspace_root) || {
-    echo "ERROR: Workspace not initialized. Run 'init' to start." >&2
+    if [[ "$json_mode" == "true" ]]; then
+      status_service_render_error_json "workspace_not_initialized" "Workspace not initialized. Run 'init' to start."
+    else
+      echo "ERROR: Workspace not initialized. Run 'init' to start." >&2
+    fi
     return 1
   }
   export RDC_LOG_FILE="$workspace/redmine-docker-workspace.log"
@@ -22,9 +31,12 @@ status_service_run() {
   for arg in "$@"; do
     case "$arg" in
       --help|-h)
-        echo "Usage: redmine-docker-workspace status"
+        echo "Usage: redmine-docker-workspace status [--json]"
         echo ""
         echo "Display workspace step status and next recommended action."
+        echo ""
+        echo "Options:"
+        echo "  --json    Output the same information (steps, external state, next action) in JSON format"
         return 0
         ;;
       -v|--verbose) export RDC_VERBOSE=true ;;
@@ -32,23 +44,41 @@ status_service_run() {
   done
 
   if [[ ! -f "$workspace/.rdc_state" ]]; then
-    echo "ERROR: Workspace not initialized. Run 'init' to start." >&2
+    if [[ "$json_mode" == "true" ]]; then
+      status_service_render_error_json "workspace_not_initialized" "Workspace not initialized. Run 'init' to start."
+    else
+      echo "ERROR: Workspace not initialized. Run 'init' to start." >&2
+    fi
     return 1
   fi
 
   local clean_status
   clean_status=$(grep "^clean_status=" "$workspace/.rdc_state" 2>/dev/null | cut -d= -f2- || true)
   if [[ "$clean_status" == "done" ]]; then
-    echo "Workspace has been cleaned. Run 'init' to re-initialize." >&2
+    if [[ "$json_mode" == "true" ]]; then
+      status_service_render_error_json "workspace_not_initialized" "Workspace has been cleaned. Run 'init' to re-initialize."
+    else
+      echo "Workspace has been cleaned. Run 'init' to re-initialize." >&2
+    fi
     return 1
   fi
 
   status_service_check_docker_daemon_reachable || {
-    echo "ERROR: Docker デーモンに接続できません。Docker を起動してから再実行してください。" >&2
+    if [[ "$json_mode" == "true" ]]; then
+      status_service_render_error_json "docker_daemon_unreachable" "Docker デーモンに接続できません。Docker を起動してから再実行してください。"
+    else
+      echo "ERROR: Docker デーモンに接続できません。Docker を起動してから再実行してください。" >&2
+    fi
     return 1
   }
 
   state_store_load "$workspace"
+
+  if [[ "$json_mode" == "true" ]]; then
+    status_service_render_json "$workspace"
+    return 0
+  fi
+
   status_service_load_and_display_steps "$workspace"
   status_service_display_rootless_warning
   echo ""
@@ -298,7 +328,20 @@ status_service_resolve_next_action() {
     return 0
   fi
 
-  # Stage 9: all done
+  # Stage 9: all done (RDC-REQ-F1442: check_status=done は「過去に検証成功した」という
+  # 履歴フラグに過ぎないため、完了と案内する前に現在の起動状態を確認する)
+  local compose_running_rc=0
+  status_service_check_compose_running "$workspace_path" || compose_running_rc=$?
+  if [[ "$compose_running_rc" -eq 2 ]]; then
+    echo "Docker デーモンに接続できません。Docker を起動してから再実行してください。"
+    return 0
+  fi
+  if [[ "$compose_running_rc" -ne 0 ]]; then
+    echo "All pipeline steps are complete, but Redmine is not currently running."
+    echo "Run: docker compose up -d (in $workspace_path)"
+    return 0
+  fi
+
   echo "完了 (complete): All steps finished."
   local bind="${RDC_STATE_redmine_bind:-127.0.0.1:38080}"
   local relative_url_root="${RDC_STATE_relative_url_root:-}"
@@ -679,4 +722,178 @@ status_service_check_build_needed_by_plugins() {
   plugins_epoch=$(date -d "$plugins_last_changed" +%s 2>/dev/null || echo "")
   image_epoch=$(date -d "$image_created_at" +%s 2>/dev/null || echo "")
   [[ -n "$plugins_epoch" && -n "$image_epoch" && "$plugins_epoch" -gt "$image_epoch" ]]
+}
+
+# ---- status --json (RDC-REQ-F1412〜F1414) ----
+# 設計: develop/docs/1A-DESIGN-F1415-auto-and-json-outputs.md 2節
+#
+# status_service_load_and_display_steps() の計算部分（build_state/up_state/runtime_state等の
+# 算出）と本節の status_service_collect_step_states() はロジックが並行しているが、実際の判定
+# （image存在確認・compose起動確認）自体は status_service_check_target_image_exists() 等の共通
+# ヘルパーへ委譲しているため、分岐ロジック自体の二重管理には当たらない
+# （次アクション案内は次アクション自体を再構成せずテキストをそのままJSON化しており、こちらは
+# 完全に単一情報源。1A-DESIGN 2.2節設計判断2参照）。
+
+# status_service_collect_step_states()
+# JSON/人間可読どちらの出力にも使う状態一式を key=value の行として出力する
+# args: workspace_path
+# stdout: key=value lines
+status_service_collect_step_states() {
+  local workspace_path="${1:?workspace_path required}"
+
+  local generate_display="${RDC_STATE_generate_status:-pending}"
+  local prepare_db_display="${RDC_STATE_import_status:-pending}"
+  local migrate_display="${RDC_STATE_migrate_status:-pending}"
+  local check_display="${RDC_STATE_check_status:-pending}"
+
+  local build_state="n/a"
+  local up_state="n/a"
+  local runtime_state="stopped"
+  local runtime_names=""
+
+  if [[ "${RDC_STATE_generate_status:-pending}" == "done" ]]; then
+    local image_check_rc=0
+    status_service_check_target_image_exists "$workspace_path" || image_check_rc=$?
+    case "$image_check_rc" in
+      0) build_state="done" ;;
+      2) build_state="unknown (Docker daemon unreachable)" ;;
+      *) build_state="pending" ;;
+    esac
+  fi
+  if [[ "${RDC_STATE_migrate_status:-pending}" == "done" || "${RDC_STATE_check_status:-pending}" == "done" ]]; then
+    local compose_running_rc=0
+    status_service_check_compose_running "$workspace_path" || compose_running_rc=$?
+    case "$compose_running_rc" in
+      0) up_state="done" ;;
+      2) up_state="unknown (Docker daemon unreachable)" ;;
+      *) up_state="pending" ;;
+    esac
+  fi
+
+  local runtime_rc=0
+  runtime_names="$(status_service_get_compose_running_names "$workspace_path")" || runtime_rc=$?
+  if [[ "$runtime_rc" -eq 2 ]]; then
+    runtime_state="unknown (Docker daemon unreachable)"
+  elif [[ -n "$runtime_names" ]]; then
+    runtime_state="running"
+  fi
+
+  if [[ "$build_state" == "pending" && "$prepare_db_display" == "done" ]]; then
+    migrate_display="pending"
+    check_display="pending"
+  fi
+
+  echo "init=${RDC_STATE_init_status:-pending}"
+  echo "generate=${generate_display}"
+  echo "prepare-db=${prepare_db_display}"
+  echo "migrate=${migrate_display}"
+  echo "check=${check_display}"
+  echo "compose_build=${build_state}"
+  echo "compose_up=${up_state}"
+  echo "compose_runtime=${runtime_state}"
+}
+
+# status_service_render_steps_json()
+# 標準入力（status_service_collect_step_states の出力）から steps/external の
+# JSONフラグメントを組み立てる（先頭・末尾に波括弧を持たない、呼び出し側で連結する断片）
+# stdin: key=value lines
+# stdout: "steps": {...},\n  "external": {...}
+status_service_render_steps_json() {
+  local init generate prepare_db migrate check compose_build compose_up compose_runtime
+  while IFS='=' read -r key value; do
+    case "$key" in
+      init) init="$value" ;;
+      generate) generate="$value" ;;
+      prepare-db) prepare_db="$value" ;;
+      migrate) migrate="$value" ;;
+      check) check="$value" ;;
+      compose_build) compose_build="$value" ;;
+      compose_up) compose_up="$value" ;;
+      compose_runtime) compose_runtime="$value" ;;
+    esac
+  done
+
+  cat <<EOF
+"steps": {
+    "init": "${init}",
+    "generate": "${generate}",
+    "prepare-db": "${prepare_db}",
+    "migrate": "${migrate}",
+    "check": "${check}"
+  },
+  "external": {
+    "compose_build": "${compose_build}",
+    "compose_up": "${compose_up}",
+    "compose_runtime": "${compose_runtime}"
+  }
+EOF
+}
+
+# status_service_render_next_action_json()
+# resolve_next_action() の出力（見出し行を除く）を JSON 文字列配列として出力する
+# args: workspace_path
+# stdout: "next_action": {"lines": [...]}
+status_service_render_next_action_json() {
+  local workspace_path="${1:?workspace_path required}"
+  local raw_lines
+  raw_lines=$(status_service_resolve_next_action "$workspace_path" | tail -n +2)
+
+  local json_lines="" first=true escaped
+  while IFS= read -r line; do
+    escaped="${line//\\/\\\\}"
+    escaped="${escaped//\"/\\\"}"
+    if [[ "$first" == "true" ]]; then
+      json_lines="\"${escaped}\""
+      first=false
+    else
+      json_lines="${json_lines}, \"${escaped}\""
+    fi
+  done <<< "$raw_lines"
+
+  printf '"next_action": {"lines": [%s]}\n' "$json_lines"
+}
+
+# status_service_render_url_json()
+# generate完了後はRedmineアクセスURLを、未完了ならnullを出力する (RDC-REQ-F1443)
+# RDC_STATE_* を直接参照する（呼び出し前に state_store_load 済みであること）。
+# 現在の起動状態（compose_runtime）とは独立に、generate完了後は常に出力する
+# （「アクセスすべきURL」と「現在アクセス可能か」を分離する）。
+# stdout: "url": "http://..." または "url": null
+status_service_render_url_json() {
+  if [[ "${RDC_STATE_generate_status:-pending}" != "done" ]]; then
+    printf '"url": null'
+    return 0
+  fi
+  local bind="${RDC_STATE_redmine_bind:-127.0.0.1:38080}"
+  local relative_url_root="${RDC_STATE_relative_url_root:-}"
+  printf '"url": "http://%s%s/"' "$bind" "$relative_url_root"
+}
+
+# status_service_render_json()
+# args: workspace_path
+# stdout: status --json の全体出力
+status_service_render_json() {
+  local workspace_path="${1:?workspace_path required}"
+
+  local steps_json
+  steps_json=$(status_service_collect_step_states "$workspace_path" | status_service_render_steps_json)
+
+  local url_json
+  url_json=$(status_service_render_url_json)
+
+  local next_action_json
+  next_action_json=$(status_service_render_next_action_json "$workspace_path")
+
+  printf '{\n  %s,\n  %s,\n  %s\n}\n' "$steps_json" "$url_json" "$next_action_json"
+}
+
+# status_service_render_error_json()
+# args: error_code, message
+# stdout: {"error": "...", "message": "..."}
+status_service_render_error_json() {
+  local error_code="${1:?error_code required}"
+  local message="${2:?message required}"
+  local escaped_message="${message//\\/\\\\}"
+  escaped_message="${escaped_message//\"/\\\"}"
+  printf '{"error": "%s", "message": "%s"}\n' "$error_code" "$escaped_message"
 }

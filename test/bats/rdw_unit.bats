@@ -820,3 +820,83 @@ PGEOF
   RDC_ALLOW_MOCK=1 run docker_is_rootless
   [ "$status" -eq 1 ]
 }
+
+# ---- _generate_service_port_reserved_by_sibling_workspace() / _generate_service_find_free_port() ----
+# 設計: develop/docs/1B-DESIGN-F1441-status-accuracy-and-port-collision.md 4節
+
+# RDC-REQ-F1441, F0998: 兄弟ワークスペースの .rdc_state が記録する redmine_bind のポートは予約済みとみなす
+@test "[RDC-REQ-F1441][RDC-REQ-F0998] _generate_service_port_reserved_by_sibling_workspace: 兄弟の redmine_bind ポートと一致すれば予約済みと判定する" {
+  local parent
+  parent=$(mktemp -d)
+  local ws_a="$parent/workspace-a"
+  local ws_b="$parent/workspace-b"
+  mkdir -p "$ws_a" "$ws_b"
+  echo "redmine_bind=127.0.0.1:38080" > "$ws_a/.rdc_state"
+
+  run _generate_service_port_reserved_by_sibling_workspace 38080 "$ws_b"
+  [ "$status" -eq 0 ]
+  rm -rf "$parent"
+}
+
+# RDC-REQ-F1441: 兄弟の redmine_bind と一致しないポートは予約済みと判定しない
+@test "[RDC-REQ-F1441] _generate_service_port_reserved_by_sibling_workspace: 一致しないポートは予約済みと判定しない" {
+  local parent
+  parent=$(mktemp -d)
+  local ws_a="$parent/workspace-a"
+  local ws_b="$parent/workspace-b"
+  mkdir -p "$ws_a" "$ws_b"
+  echo "redmine_bind=127.0.0.1:38080" > "$ws_a/.rdc_state"
+
+  run _generate_service_port_reserved_by_sibling_workspace 38081 "$ws_b"
+  [ "$status" -ne 0 ]
+  rm -rf "$parent"
+}
+
+# RDC-REQ-F1441: 自分自身のワークスペースは走査対象から除外する
+@test "[RDC-REQ-F1441] _generate_service_port_reserved_by_sibling_workspace: 自分自身の .rdc_state は対象外" {
+  local parent
+  parent=$(mktemp -d)
+  local ws_a="$parent/workspace-a"
+  mkdir -p "$ws_a"
+  echo "redmine_bind=127.0.0.1:38080" > "$ws_a/.rdc_state"
+
+  run _generate_service_port_reserved_by_sibling_workspace 38080 "$ws_a"
+  [ "$status" -ne 0 ]
+  rm -rf "$parent"
+}
+
+# RDC-REQ-F1441: clean 済み（redmine_bind 未記録）の兄弟は予約済みとみなさない
+@test "[RDC-REQ-F1441] _generate_service_port_reserved_by_sibling_workspace: clean済みの兄弟（redmine_bind未記録）は対象外" {
+  local parent
+  parent=$(mktemp -d)
+  local ws_a="$parent/workspace-a"
+  local ws_b="$parent/workspace-b"
+  mkdir -p "$ws_a" "$ws_b"
+  echo "clean_status=done" > "$ws_a/.rdc_state"
+
+  run _generate_service_port_reserved_by_sibling_workspace 38080 "$ws_b"
+  [ "$status" -ne 0 ]
+  rm -rf "$parent"
+}
+
+# RDC-REQ-F1441, F0998: find_free_port は兄弟が予約済みのポートをスキップして次の空きポートを返す
+@test "[RDC-REQ-F1441][RDC-REQ-F0998] _generate_service_find_free_port: 兄弟が予約済みのポートをスキップする" {
+  local parent
+  parent=$(mktemp -d)
+  local ws_a="$parent/workspace-a"
+  local ws_b="$parent/workspace-b"
+  mkdir -p "$ws_a" "$ws_b"
+  echo "redmine_bind=127.0.0.1:47800" > "$ws_a/.rdc_state"
+
+  run _generate_service_find_free_port 47800 "$ws_b"
+  [ "$status" -eq 0 ]
+  [ "$output" != "47800" ]
+  rm -rf "$parent"
+}
+
+# RDC-REQ-F1441: workspace_path 省略時（後方互換）は従来通り動作する
+@test "[RDC-REQ-F1441] _generate_service_find_free_port: workspace_path省略時は兄弟チェックを行わない" {
+  run _generate_service_find_free_port 47900
+  [ "$status" -eq 0 ]
+  [ "$output" = "47900" ]
+}
