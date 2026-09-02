@@ -435,6 +435,25 @@ EOF
   unset RDC_MOCK_IMAGE_VERSION RDC_MOCK_BASE_IMAGE_DIGEST
 }
 
+# RDC-REQ-F1444: explicit（--base-image）モードでも、レンダリング用のproduct="explicit"とは独立に
+# 検出した製品種別が.rdc_stateのproductキー（空だったもの）へ書き込まれる
+@test "[RDC-REQ-F1444] generate: explicitモードでも検出した製品種別が.rdc_stateのproductへ書き込まれる" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "image_ref=futuremine/redmica:4.1.1" \
+    "image_source=explicit" "product=" "init_status=done" "dbdump_status=done" \
+    "generate_status=pending"
+  cd "$WS"
+  export RDC_ALLOW_MOCK=1
+  export RDC_MOCK_IMAGE_VERSION=4.1.1
+  export RDC_MOCK_DETECTED_PRODUCT=redmica
+  export RDC_THEMES_CONTAINER_PATH=/usr/src/redmine/themes
+  run rdw generate
+  [ "$status" -eq 0 ]
+  grep -q "^redmine_version=4.1.1$" "$WS/.rdc_state"
+  grep -q "^product=redmica$" "$WS/.rdc_state"
+  unset RDC_MOCK_IMAGE_VERSION RDC_MOCK_DETECTED_PRODUCT
+}
+
 # RDC-REQ-F0910C: pull 失敗時はローカルイメージへフォールバックし、ローカルにも無ければ generate を失敗させる
 @test "[RDC-REQ-F0910C] generate: pull 失敗かつローカルイメージなしでは失敗する" {
   mkdir -p "$WS/mockbin"

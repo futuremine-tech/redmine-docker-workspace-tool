@@ -38,7 +38,7 @@ auto_service_show_usage() {
   echo "  --relative-url-root PATH     Redmine subpath (e.g. /redmine)"
   echo "  --bind-port PORT             Redmine host port (default: auto-detected)"
   echo "  --lang <LANG>                Language for loading default data (default: ja)"
-  echo "  --add-plugin <git_url>[#ref] Add a plugin before generate (repeatable)"
+  echo "  --add-plugin <git_url>[#ref] Add a plugin (repeatable)"
   echo "  -v, --verbose                Verbose output"
 }
 
@@ -146,6 +146,14 @@ auto_service_run_pipeline() {
   [[ -n "$base_image" ]] && init_args+=(--base-image "$base_image")
   init_service_run "${init_args[@]}" || { echo "auto: failed at step 'init'" >&2; return 1; }
 
+  local generate_args=()
+  [[ -n "$relative_url_root" ]] && generate_args+=(--relative-url-root "$relative_url_root")
+  [[ -n "$bind_port" ]] && generate_args+=(--bind-port "$bind_port")
+  local auto_db_password
+  auto_db_password=$(auto_service_generate_random_password)
+  ( cd "$workspace_path" && DB_PASSWORD="$auto_db_password" generate_service_run "${generate_args[@]}" ) \
+    || { echo "auto: failed at step 'generate'" >&2; return 1; }
+
   local spec git_url ref add_plugin_args
   for spec in "${plugin_specs[@]}"; do
     git_url=$(auto_service_split_plugin_spec "$spec" | sed -n '1p')
@@ -155,14 +163,6 @@ auto_service_run_pipeline() {
     ( cd "$workspace_path" && add_plugin_service_run "${add_plugin_args[@]}" ) \
       || { echo "auto: failed at step 'add-plugin' ($git_url)" >&2; return 1; }
   done
-
-  local generate_args=()
-  [[ -n "$relative_url_root" ]] && generate_args+=(--relative-url-root "$relative_url_root")
-  [[ -n "$bind_port" ]] && generate_args+=(--bind-port "$bind_port")
-  local auto_db_password
-  auto_db_password=$(auto_service_generate_random_password)
-  ( cd "$workspace_path" && DB_PASSWORD="$auto_db_password" generate_service_run "${generate_args[@]}" ) \
-    || { echo "auto: failed at step 'generate'" >&2; return 1; }
 
   local prepare_db_args=()
   [[ "$fresh_db" == "true" ]] && prepare_db_args=(--fresh-db)

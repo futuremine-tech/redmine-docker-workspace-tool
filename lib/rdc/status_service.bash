@@ -155,10 +155,7 @@ status_service_load_and_display_steps() {
   local workspace_path="${1:?workspace_path required}"
 
   local mode="${RDC_STATE_mode:-}"
-  local product="${RDC_STATE_product:-}"
-  local tag="${RDC_STATE_target_image_tag:-}"
-  local image_ref="${RDC_STATE_image_ref:-}"
-  local image_source="${RDC_STATE_image_source:-}"
+  local base_image_tag="${RDC_STATE_base_image_tag:-}"
   local generate_display="${RDC_STATE_generate_status:-pending}"
   local prepare_db_display="${RDC_STATE_import_status:-pending}"
   local migrate_display="${RDC_STATE_migrate_status:-pending}"
@@ -166,10 +163,8 @@ status_service_load_and_display_steps() {
 
   echo "=== Workspace Status ==="
   echo "mode:    ${mode}"
-  if [[ "$image_source" == "explicit" ]]; then
-    echo "image:   ${image_ref} (explicit)"
-  elif [[ -n "$product" ]]; then
-    echo "product: ${product}:${tag}"
+  if [[ -n "$base_image_tag" ]]; then
+    echo "image:   ${base_image_tag}"
   fi
   echo ""
   # External manual steps (reference only)

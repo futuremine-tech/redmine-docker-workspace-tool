@@ -21,7 +21,7 @@ redmine-docker-workspace info --json
   "workspace_path": "/home/user/ws/myredmine",
   "mode": "passenger",
   "product": "redmine",
-  "target_image_tag": "6.0.3",
+  "base_image_tag": "futuremine/redmine:6.0.3",
   "redmine_version": "6.0.3",
   "image": "futuremine/redmine:6.0.3",
   "redmine_bind": "127.0.0.1:38080",
@@ -45,7 +45,7 @@ redmine-docker-workspace info --json
 }
 ```
 
-`redmine_version`は実際に検出されたRedmine/RedMicaバージョンです（[バージョン・ベースイメージの検出](REFERENCE-ja.md#generate--docker-設定生成)参照）。未検出（本機能実装前に`generate`済みのワークスペース等）の場合は`target_image_tag`へフォールバックします。`verification`は`check`未実行時`{"status": "not_completed"}`のみになります。`runtime.state`は`running`・`stopped`・`unknown`（Docker疎通不可）のいずれかで、`started_at`は`state`が`running`のときのみ含まれます。
+`base_image_tag`は実際に使用しているベースイメージの完全な参照です（例: `futuremine/redmine:7.0.0`。`--base-image`でexplicit指定した場合はその指定値そのもの）。ワークスペースをどの入力モードで作成したかに関わらず同じ意味を持ちます。`redmine_version`は実際に検出されたRedmine/RedMicaバージョンです（[バージョン・ベースイメージの検出](REFERENCE-ja.md#generate--docker-設定生成)参照）。`verification`は`check`未実行時`{"status": "not_completed"}`のみになります。`runtime.state`は`running`・`stopped`・`unknown`（Docker疎通不可）のいずれかで、`started_at`は`state`が`running`のときのみ含まれます。
 
 **エラー時**（未初期化またはクリーン済み）:
 

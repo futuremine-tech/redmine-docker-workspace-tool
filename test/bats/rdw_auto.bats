@@ -415,8 +415,8 @@ prepare-db" ]
   [ "$(echo "$output" | sed -n '2p')" = "" ]
 }
 
-# RDC-REQ-F1437, F0994: --add-plugin を1つ指定した場合、init後・generate前にadd-pluginが呼ばれる
-@test "[RDC-REQ-F1437][RDC-REQ-F0994] auto: --add-plugin 指定時、initの後・generateの前にadd-pluginが呼ばれる" {
+# RDC-REQ-F1437, F0994: --add-plugin を1つ指定した場合、generateの後・prepare-dbの前にadd-pluginが呼ばれる
+@test "[RDC-REQ-F1437][RDC-REQ-F0994] auto: --add-plugin 指定時、generateの後・prepare-dbの前にadd-pluginが呼ばれる" {
   rdw_auto_stub_services
   cd "$WS"
   run auto_service_run --target "$WS" --redmine 6.1.2 --fresh-db \
@@ -425,8 +425,8 @@ prepare-db" ]
   local actual
   actual=$(cut -d' ' -f1 "$RDW_AUTO_CALL_LOG")
   [ "$actual" = "init
-add-plugin
 generate
+add-plugin
 prepare-db
 docker-compose-build
 migrate
@@ -449,15 +449,16 @@ check" ]
 add-plugin https://example.com/plugin-b.git" ]
 }
 
-# RDC-REQ-F1439, F0996: --add-plugin の実行が失敗した場合、generate以降は実行されない
-@test "[RDC-REQ-F1439][RDC-REQ-F0996] auto: --add-plugin 失敗時は generate 以降を実行しない" {
+# RDC-REQ-F1439, F0996: --add-plugin の実行が失敗した場合、prepare-db以降は実行されない（generateは既に実行済み）
+@test "[RDC-REQ-F1439][RDC-REQ-F0996] auto: --add-plugin 失敗時は prepare-db 以降を実行しない" {
   rdw_auto_stub_services "add-plugin"
   cd "$WS"
   run auto_service_run --target "$WS" --redmine 6.1.2 --fresh-db \
     --add-plugin https://example.com/plugin-a.git
   [ "$status" -ne 0 ]
   echo "$output" | grep -qi "add-plugin"
-  ! grep -q "^generate" "$RDW_AUTO_CALL_LOG"
+  grep -q "^generate" "$RDW_AUTO_CALL_LOG"
+  ! grep -q "^prepare-db" "$RDW_AUTO_CALL_LOG"
 }
 
 # RDC-REQ-F1437A, F0997: --add-plugin に URL#ref 形式を指定した場合、add-plugin へ --ref として引き継がれる

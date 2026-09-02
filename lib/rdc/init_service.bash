@@ -9,6 +9,7 @@ source "$_RDC_LIB_DIR/mode_resolver.bash"
 source "$_RDC_LIB_DIR/logger.bash"
 source "$_RDC_LIB_DIR/status_service.bash"
 source "$_RDC_LIB_DIR/version_detector.bash"
+source "$_RDC_LIB_DIR/compose_renderer.bash"
 
 # _init_service_workspace_required_keys: workspace モードで必須の .rdc_state キー
 _INIT_WORKSPACE_REQUIRED_KEYS=("workspace_initialized" "mode" "product" "target_image_tag" "init_status")
@@ -61,13 +62,9 @@ _init_service_find_passenger() {
 # stdout: product=<redmine|redmica>\nversion=<x.x.x>
 _init_service_detect_product() {
   local root="${1:?redmine_root required}"
-  local product="redmine"
-  local version="unknown"
-
-  if [[ -f "$root/lib/redmica/version.rb" ]] || [[ -f "$root/redmica.gemspec" ]]; then
-    product="redmica"
-  fi
-
+  local product
+  product=$(version_detector_detect_product_from_root "$root")
+  local version
   version=$(version_detector_detect_from_root "$product" "$root")
 
   echo "product=$product"
@@ -322,12 +319,15 @@ init_service_run() {
       # User-specified tag overrides detection
       local final_product="${target_product:-$detected_product}"
       local final_tag="${target_tag:-$detected_version}"
+      local base_image_tag
+      base_image_tag=$(compose_renderer_resolve_image_name "$final_product" "$final_tag")
 
       state_store_save_many "$workspace" \
         "workspace_initialized=true" \
         "mode=passenger" \
         "product=$final_product" \
         "target_image_tag=$final_tag" \
+        "base_image_tag=$base_image_tag" \
         "redmine_root=$redmine_root" \
         "init_status=done" \
         "generate_status=pending" \
@@ -346,12 +346,15 @@ init_service_run() {
 
       local final_product="${target_product:-$src_product}"
       local final_tag="${target_tag:-$src_tag}"
+      local base_image_tag
+      base_image_tag=$(compose_renderer_resolve_image_name "$final_product" "$final_tag")
 
       state_store_save_many "$workspace" \
         "workspace_initialized=true" \
         "mode=workspace" \
         "product=$final_product" \
         "target_image_tag=$final_tag" \
+        "base_image_tag=$base_image_tag" \
         "source_workspace=$source_workspace" \
         "init_status=done" \
         "generate_status=pending" \
@@ -365,6 +368,8 @@ init_service_run() {
       local final_tag="${target_tag:-latest}"
 
       if [[ -n "$base_image" ]]; then
+        local base_image_tag
+        base_image_tag=$(compose_renderer_resolve_image_name "explicit" "$base_image")
         state_store_save_many "$workspace" \
           "workspace_initialized=true" \
           "mode=new" \
@@ -372,6 +377,7 @@ init_service_run() {
           "image_source=explicit" \
           "product=" \
           "target_image_tag=" \
+          "base_image_tag=$base_image_tag" \
           "init_status=done" \
           "dbdump_status=pending" \
           "generate_status=pending" \
@@ -379,12 +385,15 @@ init_service_run() {
           "migrate_status=pending" \
           "check_status=pending"
       else
+        local base_image_tag
+        base_image_tag=$(compose_renderer_resolve_image_name "$final_product" "$final_tag")
         state_store_save_many "$workspace" \
           "workspace_initialized=true" \
           "mode=new" \
           "product=$final_product" \
           "target_image_tag=$final_tag" \
           "image_ref=${final_product}:${final_tag}" \
+          "base_image_tag=$base_image_tag" \
           "image_source=preset" \
           "init_status=done" \
           "dbdump_status=pending" \

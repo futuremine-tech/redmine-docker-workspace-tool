@@ -57,17 +57,18 @@ EOF
   echo "$output" | grep -q "Workspace Info"
 }
 
-# RDC-REQ-F0972: info は対象製品種別・目標イメージタグ・bind・relative_url_root・各ステップ完了状況を出力する
-@test "[RDC-REQ-F0972] info run: 対象製品種別・目標イメージタグ・bind・各ステップ完了状況を出力する" {
+# RDC-REQ-F0972: info は対象製品種別・base_image_tag・bind・relative_url_root・各ステップ完了状況を出力する
+@test "[RDC-REQ-F0972] info run: 対象製品種別・base_image_tag・bind・各ステップ完了状況を出力する" {
   rdw_init_state "$WS" \
     "workspace_initialized=true" "mode=passenger" "product=redmine" \
-    "target_image_tag=6.1.2" "redmine_bind=127.0.0.1:38080" "relative_url_root=/redmine" \
+    "target_image_tag=6.1.2" "base_image_tag=redmine:6.1.2" \
+    "redmine_bind=127.0.0.1:38080" "relative_url_root=/redmine" \
     "init_status=done" "generate_status=done" "import_status=done" \
     "migrate_status=done" "check_status=pending"
   cd "$WS"
   run rdw info
   [ "$status" -eq 0 ]
-  echo "$output" | grep -q "redmine:6.1.2"
+  echo "$output" | grep -q "base_image: redmine:6.1.2"
   echo "$output" | grep -q "127.0.0.1:38080"
   echo "$output" | grep -q "init"
   echo "$output" | grep -q "done"
@@ -108,6 +109,35 @@ EOF
   echo "$output" | grep -qi "not generated"
 }
 
+# RDC-REQ-F1445, F1448: target_image_tagが空（explicitモード）でも、generateが検出結果でproductを
+# 埋めていればproduct:行が単独形式（コロン無し）で表示され、base_image:行に実際のイメージ参照が出る
+@test "[RDC-REQ-F1445][RDC-REQ-F1448] info run: explicitモードでproduct行が単独形式・base_image行に実際の参照が表示される" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "image_source=explicit" \
+    "image_ref=futuremine/redmica:4.1.3" "product=redmica" "target_image_tag=" \
+    "base_image_tag=futuremine/redmica:4.1.3" \
+    "redmine_version=4.1.3" \
+    "init_status=done" "generate_status=done" "import_status=done" \
+    "migrate_status=done" "check_status=pending"
+  cd "$WS"
+  run rdw info
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "^product:    redmica$"
+  ! echo "$output" | grep -q "product:.*redmica:"
+  echo "$output" | grep -q "^base_image: futuremine/redmica:4.1.3$"
+}
+
+# RDC-REQ-F1445: presetモード（target_image_tagが非空）でもproduct:行は常に単独形式で表示する
+@test "[RDC-REQ-F1445] info run: presetモードでもproduct:行は常に単独形式で表示する" {
+  rdw_full_state_passenger "$WS"
+  cd "$WS"
+  run rdw info
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "^product:    redmine$"
+  ! echo "$output" | grep -q "product:.*redmine:"
+  echo "$output" | grep -q "^base_image: redmine:6.1.2$"
+}
+
 # ---- InfoService#run: JSON出力 ----
 
 # RDC-REQ-F0973: info --json の出力が有効なJSON形式である
@@ -120,10 +150,11 @@ EOF
 }
 
 # RDC-REQ-F1410: info --json は主要フィールドを含むJSONを標準出力へ出力する
-@test "[RDC-REQ-F1410] info --json: 対象製品種別・目標イメージタグ・使用イメージ名・bind・relative_url_root・パス・ステップ・稼働状態を含む" {
+@test "[RDC-REQ-F1410] info --json: 対象製品種別・base_image_tag・使用イメージ名・bind・relative_url_root・パス・ステップ・稼働状態を含む" {
   rdw_init_state "$WS" \
     "workspace_initialized=true" "mode=passenger" "product=redmine" \
-    "target_image_tag=6.1.2" "redmine_bind=127.0.0.1:38080" "relative_url_root=/redmine" \
+    "target_image_tag=6.1.2" "base_image_tag=redmine:6.1.2" \
+    "redmine_bind=127.0.0.1:38080" "relative_url_root=/redmine" \
     "init_status=done" "generate_status=done" "import_status=done" \
     "migrate_status=done" "check_status=pending"
   rdw_info_write_compose_with_image "$WS" "futuremine/redmine:6.1.2"
@@ -133,13 +164,42 @@ EOF
   echo "$output" | grep -q '"workspace_path":'
   echo "$output" | grep -q '"mode": "passenger"'
   echo "$output" | grep -q '"product": "redmine"'
-  echo "$output" | grep -q '"target_image_tag": "6.1.2"'
+  echo "$output" | grep -q '"base_image_tag": "redmine:6.1.2"'
   echo "$output" | grep -q '"image": "futuremine/redmine:6.1.2"'
   echo "$output" | grep -q '"redmine_bind": "127.0.0.1:38080"'
   echo "$output" | grep -q '"relative_url_root": "/redmine"'
   echo "$output" | grep -q '"steps":'
   echo "$output" | grep -q '"prepare-db": "done"'
   echo "$output" | grep -q '"runtime":'
+}
+
+# RDC-REQ-F1448: info --json は、generateが検出結果で埋めたproductをそのまま出力する
+# （explicit時にproductが空のままにならない）
+@test "[RDC-REQ-F1448] info --json: generateが検出結果で埋めたproductをそのまま出力する" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "image_source=explicit" \
+    "image_ref=futuremine/redmica:4.1.3" "product=redmica" "target_image_tag=" \
+    "base_image_tag=futuremine/redmica:4.1.3" \
+    "redmine_version=4.1.3" \
+    "init_status=done" "generate_status=done" "import_status=done" \
+    "migrate_status=done" "check_status=pending"
+  cd "$WS"
+  RDC_MOCK_REDMINE_RUNNING=false run rdw info --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['product'] == 'redmica'; assert d['base_image_tag'] == 'futuremine/redmica:4.1.3'"
+}
+
+# RDC-REQ-F1455: info の人間可読・--json出力にtarget_image_tagが含まれずbase_image_tagが含まれる
+@test "[RDC-REQ-F1455] info: 人間可読・--json出力にtarget_image_tagが含まれずbase_image_tagが含まれる" {
+  rdw_full_state_passenger "$WS"
+  cd "$WS"
+  run rdw info
+  [ "$status" -eq 0 ]
+  ! echo "$output" | grep -qi "target_image_tag"
+
+  run rdw info --json
+  [ "$status" -eq 0 ]
+  echo "$output" | python3 -c "import json,sys; d=json.load(sys.stdin); assert 'target_image_tag' not in d; assert d['base_image_tag'] == 'redmine:6.1.2'"
 }
 
 # RDC-REQ-F1403是正: info --json の verification オブジェクトは base_image_digest というキーで出力する（image_digest ではない）

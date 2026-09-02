@@ -29,6 +29,35 @@ teardown() {
   echo "$output" | grep -q "pending\|未完了"
 }
 
+# RDC-REQ-F1451: status（人間可読）はexplicit/preset問わずbase_image_tagを用いた単一形式で使用イメージを表示する
+@test "[RDC-REQ-F1451] status run: explicitモードでもbase_image_tagを用いた単一形式で表示する" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "image_source=explicit" \
+    "image_ref=futuremine/redmica:4.1.3" "product=redmica" "target_image_tag=" \
+    "base_image_tag=futuremine/redmica:4.1.3" \
+    "init_status=done" "generate_status=pending" "import_status=pending" \
+    "migrate_status=pending" "check_status=pending"
+  cd "$WS"
+  run rdw status
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "^image:   futuremine/redmica:4.1.3$"
+  ! echo "$output" | grep -q "(explicit)"
+}
+
+@test "[RDC-REQ-F1451] status run: presetモードでもbase_image_tagを用いた単一形式で表示する" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "image_source=preset" \
+    "product=redmine" "target_image_tag=7.0.0" "image_ref=redmine:7.0.0" \
+    "base_image_tag=futuremine/redmine:7.0.0" \
+    "init_status=done" "generate_status=pending" "import_status=pending" \
+    "migrate_status=pending" "check_status=pending"
+  cd "$WS"
+  run rdw status
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "^image:   futuremine/redmine:7.0.0$"
+  ! echo "$output" | grep -q "product: redmine:7.0.0"
+}
+
 # RDC-REQ-F0922: .rdc_state を変更しないことを確認する（読み取り専用）
 @test "[RDC-REQ-F0922] status run: 実行後も .rdc_state が変更されない（読み取り専用）" {
   rdw_partial_state_until_generate "$WS"

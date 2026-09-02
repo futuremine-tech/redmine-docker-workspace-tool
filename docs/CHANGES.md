@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.9.6] - 2026-08-30
+## [0.9.7] - 2026-09-02
 
 ### Added
 
@@ -13,10 +13,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `init --list --json` / `init --list-all --json`: the same tag listing as JSON, for populating a version picker before `auto`/`init`.
 - New [Machine-Readable Reference](../docs/REFERENCE-JSON.md) documenting the `--json` output of `info`, `status`, and `init --list`/`--list-all`.
 - `generate`'s automatic port selection (when `--bind-port` is omitted) now also avoids ports already reserved by sibling workspace directories (recorded in their `.rdc_state`), even if those workspaces' containers aren't currently running — not just ports currently in use on the host.
+- `info`, `status`, and `check`'s verification manifest now include `base_image_tag` — the full reference of the base image actually used (e.g. `futuremine/redmine:7.0.0`), resolved the same way regardless of which input mode (`--redmine`/`--redmica`/`--base-image`) created the workspace.
+
+### Changed
+
+- `auto`'s `--add-plugin` now runs after `generate` instead of before it (there was never a technical requirement for the previous order; this only matters if you were relying on the exact internal sequencing).
+- `info`'s `--json` and human-readable output no longer include `target_image_tag`; use the new `base_image_tag` field instead. `status`'s human-readable output now shows the same `base_image_tag`-based `image:` line regardless of input mode (previously `--base-image` workspaces showed a distinct `image: ... (explicit)` form). The verification manifest's `target` field is now `base_image_tag` instead of `<product>:<target_image_tag>`.
 
 ### Fixed
 
 - `status` (and `status --json`) no longer reports "All steps complete" / a running Redmine when every pipeline step is `done` but the Redmine container isn't currently running (e.g. after `docker compose down`). It now prompts `docker compose up -d` in that case, matching what `external.compose_runtime` already showed.
+- `--base-image` workspaces no longer report the underlying Redmine version instead of the actual RedMica version (or vice versa) in `redmine_version`; `info`'s `product` field is now populated for `--base-image` workspaces too instead of staying blank.
 
 ## [0.9.5] - 2026-08-27
 

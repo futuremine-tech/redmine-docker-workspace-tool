@@ -21,7 +21,7 @@ Read-only snapshot of workspace information, intended for external tooling that 
   "workspace_path": "/home/user/ws/myredmine",
   "mode": "passenger",
   "product": "redmine",
-  "target_image_tag": "6.0.3",
+  "base_image_tag": "futuremine/redmine:6.0.3",
   "redmine_version": "6.0.3",
   "image": "futuremine/redmine:6.0.3",
   "redmine_bind": "127.0.0.1:38080",
@@ -45,7 +45,7 @@ Read-only snapshot of workspace information, intended for external tooling that 
 }
 ```
 
-`redmine_version` reports the actually detected Redmine/RedMica version (see [Version and base image detection](REFERENCE.md#generate--generate-docker-configuration) in the main reference), falling back to `target_image_tag` when not yet detected (e.g. workspaces generated before this field existed). `verification` is omitted down to `{"status": "not_completed"}` before `check` has run. `runtime.state` is `running`, `stopped`, or `unknown` (Docker unreachable); `started_at` is present only when `state` is `running`.
+`base_image_tag` is the full reference of the base image actually used (e.g. `futuremine/redmine:7.0.0`, or exactly what was passed to `--base-image` when the workspace was created that way) — the same value regardless of which input mode created the workspace. `redmine_version` reports the actually detected Redmine/RedMica version (see [Version and base image detection](REFERENCE.md#generate--generate-docker-configuration) in the main reference), falling back internally to the raw target tag when not yet detected (e.g. workspaces generated before this field existed). `verification` is omitted down to `{"status": "not_completed"}` before `check` has run. `runtime.state` is `running`, `stopped`, or `unknown` (Docker unreachable); `started_at` is present only when `state` is `running`.
 
 **On error** (workspace not initialized, or cleaned):
 

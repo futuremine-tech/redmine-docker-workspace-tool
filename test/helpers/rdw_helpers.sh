@@ -63,6 +63,7 @@ rdw_full_state_passenger() {
     "mode=passenger" \
     "product=redmine" \
     "target_image_tag=6.1.2" \
+    "base_image_tag=redmine:6.1.2" \
     "init_status=done" \
     "dbdump_status=done" \
     "generate_status=done" \

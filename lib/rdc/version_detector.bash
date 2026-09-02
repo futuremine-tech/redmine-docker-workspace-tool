@@ -1,7 +1,21 @@
 #!/usr/bin/env bash
 # lib/rdc/version_detector.bash
 # Redmine/RedMica の実バージョンをソースツリーから検出する Domain モジュール
-# 根拠要件: RDC-REQ-F1413
+# 根拠要件: RDC-REQ-F1413, RDC-REQ-F1444
+
+# version_detector_detect_product_from_root()
+# root配下のファイル存在から製品種別を検出する。`product`が未確定・信頼できない場合
+# （generateのexplicitモード等）の判定手段として使う。
+# args: root_dir
+# stdout: redmine または redmica
+version_detector_detect_product_from_root() {
+  local root="${1:?root required}"
+  if [[ -f "$root/lib/redmica/version.rb" ]] || [[ -f "$root/redmica.gemspec" ]]; then
+    echo "redmica"
+  else
+    echo "redmine"
+  fi
+}
 
 # version_detector_detect_from_root()
 # root配下のVERSIONファイルまたはversion.rbから実バージョンを検出する

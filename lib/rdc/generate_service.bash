@@ -757,9 +757,14 @@ generate_service_extract_configuration_example() {
 
     # RDC-REQ-F1413: イメージ内部から実バージョンを検出する（target_image_tag が latest 等の
     # 非セマンティックバージョンタグであっても、実際にビルドされているバージョンを取得する）
+    # RDC-REQ-F1444: product はレンダリング用途（explicit時は"explicit"という無意味な値になる）
+    # であり信頼できないため、バージョン検出にはイメージ内部のファイルから改めて検出した
+    # detected_product を使う（渡された product は使わない）。
+    local detected_product="unknown"
     local detected_version="unknown"
     if [[ -n "${RDC_MOCK_IMAGE_VERSION:-}" ]]; then
       detected_version="$RDC_MOCK_IMAGE_VERSION"
+      detected_product="${RDC_MOCK_DETECTED_PRODUCT:-$product}"
     elif [[ "${RDC_ALLOW_MOCK:-}" != "1" ]]; then
       local version_tmp
       version_tmp=$(mktemp -d)
@@ -767,10 +772,16 @@ generate_service_extract_configuration_example() {
       mkdir -p "$version_tmp/lib/redmine" "$version_tmp/lib/redmica"
       docker cp "$container_id:/usr/src/redmine/lib/redmine/version.rb" "$version_tmp/lib/redmine/version.rb" 2>/dev/null || true
       docker cp "$container_id:/usr/src/redmine/lib/redmica/version.rb" "$version_tmp/lib/redmica/version.rb" 2>/dev/null || true
-      detected_version=$(version_detector_detect_from_root "$product" "$version_tmp")
+      detected_product=$(version_detector_detect_product_from_root "$version_tmp")
+      detected_version=$(version_detector_detect_from_root "$detected_product" "$version_tmp")
       rm -rf "$version_tmp"
     fi
     state_store_save "$workspace_path" "redmine_version" "$detected_version"
+    # RDC-REQ-F1444: .rdc_stateのproductが未設定（explicit時等）の場合に限り、検出結果で埋める。
+    # presetモード（既にproductが設定済み）では宣言済みの値を優先し上書きしない。
+    if [[ -z "${RDC_STATE_product:-}" && "$detected_product" != "unknown" ]]; then
+      state_store_save "$workspace_path" "product" "$detected_product"
+    fi
 
     docker rm -f "$container_id" 2>/dev/null || true
   fi

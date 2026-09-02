@@ -372,6 +372,44 @@ EOF
   rm -rf "$root"
 }
 
+# ---- VersionDetector#detect_product_from_root (RDC-REQ-F1444) ----
+
+# RDC-REQ-F1444: lib/redmica/version.rb が存在する場合は redmica と判定する
+@test "[RDC-REQ-F1444] VersionDetector: lib/redmica/version.rb が存在する場合は redmica と判定する" {
+  local root
+  root=$(mktemp -d)
+  mkdir -p "$root/lib/redmica"
+  touch "$root/lib/redmica/version.rb"
+
+  run version_detector_detect_product_from_root "$root"
+  [ "$status" -eq 0 ]
+  [ "$output" = "redmica" ]
+  rm -rf "$root"
+}
+
+# RDC-REQ-F1444: redmica.gemspec が存在する場合は redmica と判定する
+@test "[RDC-REQ-F1444] VersionDetector: redmica.gemspec が存在する場合は redmica と判定する" {
+  local root
+  root=$(mktemp -d)
+  touch "$root/redmica.gemspec"
+
+  run version_detector_detect_product_from_root "$root"
+  [ "$status" -eq 0 ]
+  [ "$output" = "redmica" ]
+  rm -rf "$root"
+}
+
+# RDC-REQ-F1444: どちらも無い場合は redmine と判定する
+@test "[RDC-REQ-F1444] VersionDetector: redmica の手がかりが無い場合は redmine と判定する" {
+  local root
+  root=$(mktemp -d)
+
+  run version_detector_detect_product_from_root "$root"
+  [ "$status" -eq 0 ]
+  [ "$output" = "redmine" ]
+  rm -rf "$root"
+}
+
 # ---- GenerateService: base_image_digest / redmine_version の .rdc_state 保存 ----
 
 # RDC-REQ-F0407(是正): docker inspect の RepoDigests から base_image_digest を .rdc_state へ保存する
@@ -497,6 +535,120 @@ EOF
   [ "$(rdw_read_state "$WS" redmine_version)" = "7.0.4" ]
 }
 
+# RDC-REQ-F1444, F1447: explicit時（product=""渡し、.rdc_stateのproductも空）でもRedMicaベース
+# イメージなら、base Redmineのバージョンへフォールバックせず、正しくRedMicaのバージョン・
+# 製品種別を検出し、.rdc_stateのproductへ書き込む（opbaseで実際に見つかったバグの再現）
+@test "[RDC-REQ-F1444][RDC-REQ-F1447] GenerateService: explicit時でもRedMicaイメージのバージョン・製品種別を正しく検出しproductへ書き込む" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "image_source=explicit" \
+    "image_ref=futuremine/redmica:4.1.3" "product=" "init_status=done" \
+    "dbdump_status=done" "generate_status=pending"
+  local fake_dir
+  fake_dir=$(mktemp -d)
+  cat > "$fake_dir/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  pull) exit 0 ;;
+  inspect) echo "sha256:unused" ;;
+  create) echo "mock-container" ;;
+  cp)
+    dest="${*: -1}"
+    case "$dest" in
+      *VERSION)
+        exit 1
+        ;;
+      *lib/redmica/version.rb)
+        mkdir -p "$(dirname "$dest")"
+        cat > "$dest" <<'RB'
+module RedMica
+  module VERSION
+    MAJOR = 4
+    MINOR = 1
+    TINY  = 3
+  end
+end
+RB
+        ;;
+      *lib/redmine/version.rb)
+        mkdir -p "$(dirname "$dest")"
+        cat > "$dest" <<'RB'
+module Redmine
+  module VERSION
+    MAJOR = 6
+    MINOR = 1
+    TINY  = 3
+  end
+end
+RB
+        ;;
+      *)
+        mkdir -p "$(dirname "$dest")"
+        echo "dummy" > "$dest"
+        ;;
+    esac
+    ;;
+  rm) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$fake_dir/docker"
+  export PATH="$fake_dir:$PATH"
+  unset RDC_ALLOW_MOCK
+  unset RDC_STATE_product
+
+  # generate_service_run() が explicit モードで product にレンダリング用の "explicit" を渡すのを再現する
+  run generate_service_extract_configuration_example "$WS" explicit "futuremine/redmica:4.1.3"
+  [ "$status" -eq 0 ]
+  [ "$(rdw_read_state "$WS" redmine_version)" = "4.1.3" ]
+  [ "$(rdw_read_state "$WS" product)" = "redmica" ]
+}
+
+# RDC-REQ-F1444: presetモード（.rdc_stateのproductが既に設定済み）では検出結果で上書きしない
+@test "[RDC-REQ-F1444] GenerateService: presetモードでは既存のproductを検出結果で上書きしない" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "product=redmine" \
+    "target_image_tag=latest" "init_status=done" "dbdump_status=done" \
+    "generate_status=pending"
+  local fake_dir
+  fake_dir=$(mktemp -d)
+  cat > "$fake_dir/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  pull) exit 0 ;;
+  inspect) echo "sha256:unused" ;;
+  create) echo "mock-container" ;;
+  cp)
+    dest="${*: -1}"
+    case "$dest" in
+      *VERSION)
+        mkdir -p "$(dirname "$dest")"
+        printf '7.0.4' > "$dest"
+        ;;
+      *lib/redmine/version.rb|*lib/redmica/version.rb)
+        exit 1
+        ;;
+      *)
+        mkdir -p "$(dirname "$dest")"
+        echo "dummy" > "$dest"
+        ;;
+    esac
+    ;;
+  rm) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$fake_dir/docker"
+  export PATH="$fake_dir:$PATH"
+  unset RDC_ALLOW_MOCK
+  export RDC_STATE_product="redmine"
+
+  run generate_service_extract_configuration_example "$WS" redmine latest
+  [ "$status" -eq 0 ]
+  [ "$(rdw_read_state "$WS" product)" = "redmine" ]
+}
+
 # RDC-REQ-F1413: モックスキップ経路（RDC_MOCK_SKIP_IMAGE_EXTRACT）では unknown を保存する
 @test "[RDC-REQ-F1413] GenerateService: RDC_MOCK_SKIP_IMAGE_EXTRACT 時は redmine_version/base_image_digest ともに unknown" {
   rdw_init_state "$WS" \
@@ -533,6 +685,34 @@ EOF
   [ "$status" -eq 0 ]
   echo "$output" | grep -qv '"status": "passed"'
   echo "$output" | grep -q "failed"
+}
+
+# RDC-REQ-F1457: 成功 manifest の target フィールドは <product>:<target_image_tag> ではなく
+# base_image_tag の値そのもの（futuremine優先判定等を経た実際のイメージ参照）を格納する
+@test "[RDC-REQ-F1457] ManifestBuilder: 成功 manifest の target フィールドは base_image_tag の値である" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "image_source=preset" \
+    "product=redmine" "target_image_tag=7.0.0" "image_ref=redmine:7.0.0" \
+    "base_image_tag=futuremine/redmine:7.0.0" \
+    "init_status=done" "dbdump_status=done" "generate_status=done" \
+    "migrate_status=done" "check_status=pending"
+  run manifest_builder_build_success "$WS" "sha256:abc123" ""
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '"target": "futuremine/redmine:7.0.0"'
+  ! echo "$output" | grep -q '"target": "redmine:7.0.0"'
+}
+
+# RDC-REQ-F1457: 失敗 manifest の target フィールドも base_image_tag の値である
+@test "[RDC-REQ-F1457] ManifestBuilder: 失敗 manifest の target フィールドは base_image_tag の値である" {
+  rdw_init_state "$WS" \
+    "workspace_initialized=true" "mode=new" "image_source=preset" \
+    "product=redmine" "target_image_tag=7.0.0" "image_ref=redmine:7.0.0" \
+    "base_image_tag=futuremine/redmine:7.0.0" \
+    "init_status=done" "dbdump_status=done" "generate_status=done" \
+    "migrate_status=done" "check_status=pending"
+  run manifest_builder_build_failure "$WS" "HTTP timeout"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q '"target": "futuremine/redmine:7.0.0"'
 }
 
 # ---- StateStore#state_store_find_workspace_root ----

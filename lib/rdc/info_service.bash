@@ -97,6 +97,7 @@ info_service_collect_fields() {
   INFO_MODE="${RDC_STATE_mode:-}"
   INFO_PRODUCT="${RDC_STATE_product:-}"
   INFO_TAG="${RDC_STATE_target_image_tag:-}"
+  INFO_BASE_IMAGE_TAG="${RDC_STATE_base_image_tag:-}"
   INFO_BIND="${RDC_STATE_redmine_bind:-127.0.0.1:38080}"
   INFO_RELATIVE_URL_ROOT="${RDC_STATE_relative_url_root:-}"
 
@@ -213,7 +214,10 @@ info_service_render_human() {
   echo "workspace:  ${INFO_WORKSPACE_PATH}"
   echo "mode:       ${INFO_MODE}"
   if [[ -n "$INFO_PRODUCT" ]]; then
-    echo "product:    ${INFO_PRODUCT}:${INFO_TAG}"
+    echo "product:    ${INFO_PRODUCT}"
+  fi
+  if [[ -n "$INFO_BASE_IMAGE_TAG" ]]; then
+    echo "base_image: ${INFO_BASE_IMAGE_TAG}"
   fi
   echo "version:    ${INFO_REDMINE_VERSION}"
   if [[ -n "$INFO_IMAGE" ]]; then
@@ -274,7 +278,7 @@ info_service_render_json() {
   "workspace_path": "${INFO_WORKSPACE_PATH}",
   "mode": "${INFO_MODE}",
   "product": "${INFO_PRODUCT}",
-  "target_image_tag": "${INFO_TAG}",
+  "base_image_tag": "${INFO_BASE_IMAGE_TAG}",
   "redmine_version": "${INFO_REDMINE_VERSION}",
   "image": ${image_json},
   "redmine_bind": "${INFO_BIND}",

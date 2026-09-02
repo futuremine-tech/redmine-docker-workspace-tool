@@ -13,9 +13,8 @@ manifest_builder_build_success() {
   local plugin_inventory="${3:-}"
 
   local state_file="$workspace_path/.rdc_state"
-  local product="" tag="" migrate_status="" check_status="" timestamp=""
-  product=$(grep "^product=" "$state_file" 2>/dev/null | cut -d= -f2- || echo "unknown")
-  tag=$(grep "^target_image_tag=" "$state_file" 2>/dev/null | cut -d= -f2- || echo "unknown")
+  local base_image_tag="" migrate_status="" check_status="" timestamp=""
+  base_image_tag=$(grep "^base_image_tag=" "$state_file" 2>/dev/null | cut -d= -f2- || echo "unknown")
   migrate_status=$(grep "^migrate_status=" "$state_file" 2>/dev/null | cut -d= -f2- || echo "unknown")
   check_status=$(grep "^check_status=" "$state_file" 2>/dev/null | cut -d= -f2- || echo "unknown")
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")
@@ -33,7 +32,7 @@ manifest_builder_build_success() {
   cat <<EOF
 {
   "status": "passed",
-  "target": "${product}:${tag}",
+  "target": "${base_image_tag}",
   "base_image_digest": "${base_image_digest}",
   "migrate": "${migrate_status}",
   "check": "${check_status}",
@@ -52,15 +51,14 @@ manifest_builder_build_failure() {
   local failure_reason="${2:?failure_reason required}"
 
   local state_file="$workspace_path/.rdc_state"
-  local product="" tag="" timestamp=""
-  product=$(grep "^product=" "$state_file" 2>/dev/null | cut -d= -f2- || echo "unknown")
-  tag=$(grep "^target_image_tag=" "$state_file" 2>/dev/null | cut -d= -f2- || echo "unknown")
+  local base_image_tag="" timestamp=""
+  base_image_tag=$(grep "^base_image_tag=" "$state_file" 2>/dev/null | cut -d= -f2- || echo "unknown")
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")
 
   cat <<EOF
 {
   "status": "failed",
-  "target": "${product}:${tag}",
+  "target": "${base_image_tag}",
   "reason": "${failure_reason}",
   "timestamp": "${timestamp}"
 }

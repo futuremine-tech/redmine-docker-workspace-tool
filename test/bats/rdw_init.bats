@@ -307,6 +307,64 @@ EOF
   rm -rf "$src_ws"
 }
 
+# ---- base_image_tag の解決 (RDC-REQ-F1454) ----
+
+# RDC-REQ-F1454: new-preset モード、Redmine 7.0.0以上は futuremine/redmine を base_image_tag に採用する
+@test "[RDC-REQ-F1454] init new-preset: Redmine 7.0.0 の base_image_tag は futuremine/redmine:7.0.0" {
+  run rdw init --mode new --redmine 7.0.0 --target "$WS"
+  [ "$status" -eq 0 ]
+  grep -q "^base_image_tag=futuremine/redmine:7.0.0$" "$WS/.rdc_state"
+}
+
+# RDC-REQ-F1454: new-preset モード、Redmine 7.0.0未満は公式 redmine を base_image_tag に採用する
+@test "[RDC-REQ-F1454] init new-preset: Redmine 6.1.3 の base_image_tag は redmine:6.1.3" {
+  run rdw init --mode new --redmine 6.1.3 --target "$WS"
+  [ "$status" -eq 0 ]
+  grep -q "^base_image_tag=redmine:6.1.3$" "$WS/.rdc_state"
+}
+
+# RDC-REQ-F1454: new-explicit モード（--base-image）は指定値をそのまま base_image_tag に採用する
+@test "[RDC-REQ-F1454] init new-explicit: --base-image redmine:7.0.0 の base_image_tag はそのまま redmine:7.0.0" {
+  run rdw init --base-image redmine:7.0.0 --target "$WS"
+  [ "$status" -eq 0 ]
+  grep -q "^base_image_tag=redmine:7.0.0$" "$WS/.rdc_state"
+}
+
+# RDC-REQ-F1454: passenger モードは検出したproduct/versionから base_image_tag を解決する
+@test "[RDC-REQ-F1454] init passenger: RedMica 3.1.0 の base_image_tag は redmica/redmica:3.1.0" {
+  fake_root=$(mktemp -d)
+  mkdir -p "$fake_root/lib/redmica" "$fake_root/lib/redmine"
+  cat > "$fake_root/redmica.gemspec" <<'EOF'
+Gem::Specification.new { |s| s.name = "redmica" }
+EOF
+  cat > "$fake_root/lib/redmica/version.rb" <<'EOF'
+module RedMica
+  module VERSION
+    MAJOR = 3
+    MINOR = 1
+    TINY  = 0
+  end
+end
+EOF
+  run rdw init --mode passenger --redmine-root "$fake_root" --target "$WS"
+  [ "$status" -eq 0 ]
+  grep -q "^base_image_tag=redmica/redmica:3.1.0$" "$WS/.rdc_state"
+  rm -rf "$fake_root"
+}
+
+# RDC-REQ-F1454: workspace モードは source から引き継いだ product/tag で base_image_tag を解決する
+@test "[RDC-REQ-F1454] init workspace: source から引き継いだ product/tag で base_image_tag を解決する" {
+  src_ws=$(rdw_make_workspace)
+  rdw_init_state "$src_ws" \
+    "workspace_initialized=true" "mode=passenger" "product=redmine" \
+    "target_image_tag=7.0.0" "init_status=done" "generate_status=done" \
+    "import_status=done" "migrate_status=done" "check_status=done"
+  run rdw init --mode workspace --source "$src_ws" --target "$WS"
+  [ "$status" -eq 0 ]
+  grep -q "^base_image_tag=futuremine/redmine:7.0.0$" "$WS/.rdc_state"
+  rm -rf "$src_ws"
+}
+
 # ---- 完了後自動 status 表示 ----
 
 # init 完了後にステップ状態一覧と次アクション案内が自動表示される
